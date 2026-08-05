@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+    <title>N2Koaching — Coaching sportif premium</title>
+    <meta name="description" content="N2Koaching : programmes de musculation, cardio et HIIT, séances guidées avec suivi des charges, et coaching personnalisé validé par un vrai coach." />
+    <meta name="theme-color" content="#000000" />
+
+    <!-- iOS / Apple PWA -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="N2Koaching" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+    <!-- Android / Chrome PWA -->
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
+
+    <!-- Reset appliqué immédiatement, avant même le chargement du CSS/JS,
+         pour éviter tout flash de marge blanche autour de l'app. -->
+    <style>
+      html, body, #root { margin: 0; padding: 0; width: 100%; }
+      html, body { background: #000000; overscroll-behavior-y: none; }
+      #root { min-height: 100dvh; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
