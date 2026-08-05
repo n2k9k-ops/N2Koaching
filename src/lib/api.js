@@ -26,6 +26,8 @@ function rowToProfile(row) {
     lastSessionAt: row.last_session_at,
     programStartAt: row.program_start_at,
     onboarded: row.onboarded,
+    age: row.age,
+    trainingFrequency: row.training_frequency,
   };
 }
 
@@ -86,11 +88,17 @@ export async function updateOwnProgress(id, fields) {
   if (error) throw error;
 }
 
-/** Enregistre les réponses du questionnaire de bienvenue et marque le profil
- *  comme onboardé — déclenché une seule fois, quel que soit le chemin de connexion. */
+/** Enregistre les réponses du questionnaire de bienvenue (poids, âge, fréquence)
+ *  et marque le profil comme onboardé — déclenché une seule fois, quel que soit
+ *  le chemin de connexion. Ne masque pas les erreurs : l'appelant doit les gérer
+ *  pour ne pas rester bloqué silencieusement sur l'écran d'onboarding. */
 export async function completeOnboarding(id, fields) {
+  const sportLevel = fields.trainingFrequency <= 2 ? "Débutant" : fields.trainingFrequency <= 4 ? "Intermédiaire" : "Avancé";
   const { error } = await supabase.from("profiles").update({
-    weight: fields.weight, height: fields.height, goal: fields.goal, sport_level: fields.sportLevel,
+    weight: fields.weight,
+    age: fields.age,
+    training_frequency: fields.trainingFrequency,
+    sport_level: sportLevel,
     onboarded: true,
   }).eq("id", id);
   if (error) throw error;

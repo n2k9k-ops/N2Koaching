@@ -42,6 +42,19 @@ const GlobalStyle = () => (
     button:active { transform: scale(0.97); }
     input, select, textarea { font-family: inherit; }
     .app-scroll { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+    input[type=range].premium-slider {
+      -webkit-appearance: none; appearance: none; width: 100%; height: 8px; border-radius: 4px;
+      background: linear-gradient(90deg, #0071E3, #42A5F5); outline: none; cursor: pointer;
+    }
+    input[type=range].premium-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; width: 30px; height: 30px; border-radius: 50%;
+      background: #fff; border: 4px solid #0071E3; box-shadow: 0 3px 10px rgba(0,0,0,0.35); cursor: pointer;
+    }
+    input[type=range].premium-slider::-moz-range-thumb {
+      width: 30px; height: 30px; border-radius: 50%; background: #fff; border: 4px solid #0071E3;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.35); cursor: pointer;
+    }
+    input[type=range].premium-slider::-moz-range-track { height: 8px; border-radius: 4px; background: linear-gradient(90deg, #0071E3, #42A5F5); }
     @keyframes fadeUp { from { opacity:0; transform: translateY(14px);} to { opacity:1; transform: translateY(0);} }
     @keyframes fadeIn { from { opacity:0;} to { opacity:1;} }
     @keyframes pulseGlow { 0%,100%{ box-shadow: 0 0 0px rgba(0,113,227,0.0);} 50%{ box-shadow: 0 0 28px rgba(0,113,227,0.35);} }
@@ -926,62 +939,97 @@ const AuthScreen = ({ c, onAuthed }) => {
   );
 };
 
-const Onboarding = ({ c, name, onComplete }) => {
-  const [weight, setWeight] = useState(70);
-  const [height, setHeight] = useState(170);
-  const [goal, setGoal] = useState("Perte de poids");
-  const [sportLevel, setSportLevel] = useState("Débutant");
-  const [saving, setSaving] = useState(false);
-  const goals = ["Perte de poids", "Prise de masse", "Remise en forme", "Performance"];
-  const levels = ["Débutant", "Intermédiaire", "Avancé"];
+const NumberDial = ({ c, value, setValue, min, max, unit, step = 1 }) => (
+  <div style={{ textAlign: "center", width: "100%" }}>
+    <div style={{ marginBottom: 30 }}>
+      <span className="ff-mono" style={{ fontSize: 64, fontWeight: 700, color: c.text, lineHeight: 1 }}>{value}</span>
+      <span style={{ fontSize: 20, color: c.muted, marginLeft: 8, fontWeight: 600 }}>{unit}</span>
+    </div>
+    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+      <button onClick={() => setValue(Math.max(min, value - step))} style={{
+        width: 46, height: 46, borderRadius: "50%", border: `1.5px solid ${c.border}`, background: c.surface2,
+        color: c.text, fontSize: 22, fontWeight: 700, cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center"
+      }}>−</button>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={e => setValue(Number(e.target.value))}
+        className="premium-slider" style={{ flex: 1 }} />
+      <button onClick={() => setValue(Math.min(max, value + step))} style={{
+        width: 46, height: 46, borderRadius: "50%", border: "none", background: c.gradA,
+        color: "#fff", fontSize: 22, fontWeight: 700, cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center"
+      }}>+</button>
+    </div>
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: c.muted, marginTop: 8, padding: "0 4px" }}>
+      <span>{min}{unit}</span><span>{max}{unit}</span>
+    </div>
+  </div>
+);
 
-  const submit = async () => {
-    setSaving(true);
-    await onComplete({ weight, height, goal, sportLevel });
+const FrequencyPicker = ({ c, value, setValue }) => (
+  <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", width: "100%" }}>
+    {[2, 3, 4, 5, 6].map(n => (
+      <button key={n} onClick={() => setValue(n)} style={{
+        width: "28%", minWidth: 88, padding: "20px 0", borderRadius: 18, cursor: "pointer",
+        border: `2px solid ${value === n ? "transparent" : c.border}`,
+        background: value === n ? c.gradA : c.surface2, color: value === n ? "#fff" : c.text,
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+        boxShadow: value === n ? "0 8px 20px rgba(0,113,227,0.35)" : "none", transition: "all .15s"
+      }}>
+        <span className="ff-mono" style={{ fontSize: 24, fontWeight: 700 }}>{n}×</span>
+        <span style={{ fontSize: 10, opacity: 0.85, fontWeight: 600 }}>/ semaine</span>
+      </button>
+    ))}
+  </div>
+);
+
+const Onboarding = ({ c, name, onComplete }) => {
+  const [step, setStep] = useState(0);
+  const [weight, setWeight] = useState(70);
+  const [age, setAge] = useState(25);
+  const [frequency, setFrequency] = useState(3);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const steps = [
+    { title: "Quel est votre poids ?", subtitle: "Ça nous permet de calculer vos besoins caloriques.", content: <NumberDial c={c} value={weight} setValue={setWeight} min={35} max={180} unit="kg" /> },
+    { title: "Quel âge avez-vous ?", subtitle: "Pour adapter l'intensité recommandée de vos séances.", content: <NumberDial c={c} value={age} setValue={setAge} min={14} max={90} unit="ans" /> },
+    { title: "À quelle fréquence voulez-vous vous entraîner ?", subtitle: "Le nombre de séances par semaine que vous visez.", content: <FrequencyPicker c={c} value={frequency} setValue={setFrequency} /> },
+  ];
+  const isLast = step === steps.length - 1;
+
+  const next = async () => {
+    if (!isLast) { setStep(s => s + 1); return; }
+    setSaving(true); setError("");
+    try {
+      await onComplete({ weight, age, trainingFrequency: frequency });
+    } catch (e) {
+      setError(e && e.message ? e.message : "Une erreur est survenue, réessayez.");
+      setSaving(false);
+    }
   };
 
   return (
     <div className="ff-body scrollbar-none anim-fadeIn" style={{ minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, padding: 24, display: "flex", flexDirection: "column", justifyContent: "center", overflowY: "auto" }}>
-      <div style={{ maxWidth: 400, margin: "0 auto", width: "100%" }}>
-        <Logo c={c} size={52} style={{ margin: "0 auto 16px" }} />
-        <h1 className="ff-display" style={{ fontSize: 21, fontWeight: 700, textAlign: "center", marginBottom: 6 }}>Bienvenue {name} 👋</h1>
-        <p style={{ color: c.muted, fontSize: 13, textAlign: "center", marginBottom: 26 }}>Quelques infos pour démarrer votre suivi à zéro. Votre coach validera ensuite votre inscription.</p>
+      <div style={{ maxWidth: 380, margin: "0 auto", width: "100%" }}>
+        <Logo c={c} size={48} style={{ margin: "0 auto 16px" }} />
+        {step === 0 && <p style={{ color: c.muted, fontSize: 13, textAlign: "center", marginBottom: 4 }}>Bienvenue {name} 👋</p>}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <div style={labelStyle(c)}>Poids actuel (kg)</div>
-              <input type="number" style={inputStyle(c)} value={weight} onChange={e => setWeight(Number(e.target.value))} />
-            </div>
-            <div>
-              <div style={labelStyle(c)}>Taille (cm)</div>
-              <input type="number" style={inputStyle(c)} value={height} onChange={e => setHeight(Number(e.target.value))} />
-            </div>
-          </div>
-          <div>
-            <div style={labelStyle(c)}>Objectif principal</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {goals.map(g => (
-                <button key={g} onClick={() => setGoal(g)} style={{
-                  padding: "9px 14px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
-                  border: `1px solid ${goal === g ? "transparent" : c.border}`, background: goal === g ? c.gradA : c.surface2, color: goal === g ? "#fff" : c.text
-                }}>{g}</button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div style={labelStyle(c)}>Niveau sportif</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              {levels.map(l => (
-                <button key={l} onClick={() => setSportLevel(l)} style={{
-                  flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
-                  border: `1px solid ${sportLevel === l ? "transparent" : c.border}`, background: sportLevel === l ? c.gradA : c.surface2, color: sportLevel === l ? "#fff" : c.text
-                }}>{l}</button>
-              ))}
-            </div>
-          </div>
-          <PrimaryBtn c={c} full onClick={submit} disabled={saving} icon={Check} style={{ marginTop: 8 }}>
-            {saving ? "Enregistrement..." : "Valider mon profil"}
+        <div style={{ display: "flex", gap: 6, justifyContent: "center", marginBottom: 30, marginTop: 14 }}>
+          {steps.map((_, i) => (
+            <div key={i} style={{ width: i === step ? 22 : 8, height: 8, borderRadius: 4, background: i <= step ? c.electric : c.surface2, transition: "all .25s" }} />
+          ))}
+        </div>
+
+        <div key={step} className="anim-fadeUp" style={{ textAlign: "center", marginBottom: 32 }}>
+          <h1 className="ff-display" style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>{steps[step].title}</h1>
+          <p style={{ color: c.muted, fontSize: 12.5, marginBottom: 30 }}>{steps[step].subtitle}</p>
+          {steps[step].content}
+        </div>
+
+        {error && <div style={{ fontSize: 12, color: c.danger, background: "rgba(255,59,48,0.1)", padding: "10px 12px", borderRadius: 10, marginBottom: 14, textAlign: "center" }}>{error}</div>}
+
+        <div style={{ display: "flex", gap: 10 }}>
+          {step > 0 && <SecondaryBtn c={c} onClick={() => setStep(s => s - 1)} icon={ChevronLeft} style={{ flex: "0 0 auto" }} />}
+          <PrimaryBtn c={c} full onClick={next} disabled={saving} icon={isLast ? Check : ChevronRight}>
+            {saving ? "Enregistrement..." : isLast ? "Valider mon profil" : "Suivant"}
           </PrimaryBtn>
         </div>
       </div>
@@ -2948,15 +2996,12 @@ export default function App() {
   };
 
   const handleOnboardingComplete = async (fields) => {
-    setState(s => ({ ...s, ...fields }));
-    if (profileId) {
-      try { await completeOnboarding(profileId, fields); } catch (e) { /* la sauvegarde périodique réessaiera pour le reste */ }
-    }
-    try {
-      const profile = await getSessionProfile();
-      if (profile) routeProfile(profile);
-      else setScreen("pending");
-    } catch (e) { setScreen("pending"); }
+    if (!profileId) throw new Error("Session introuvable, reconnectez-vous.");
+    await completeOnboarding(profileId, fields);
+    setState(s => ({ ...s, weight: fields.weight, age: fields.age, trainingFrequency: fields.trainingFrequency }));
+    const profile = await getSessionProfile();
+    if (profile) routeProfile(profile);
+    else setScreen("pending");
   };
 
   const handlePendingResolved = (profile) => routeProfile(profile);

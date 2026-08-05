@@ -28,6 +28,8 @@ create table if not exists public.profiles (
   last_session_at timestamptz,
   program_start_at timestamptz default now(),
   onboarded boolean not null default false,
+  age integer,
+  training_frequency integer,
   created_at timestamptz not null default now()
 );
 
@@ -36,6 +38,8 @@ create table if not exists public.profiles (
 alter table public.profiles add column if not exists last_session_at timestamptz;
 alter table public.profiles add column if not exists program_start_at timestamptz default now();
 alter table public.profiles add column if not exists onboarded boolean not null default false;
+alter table public.profiles add column if not exists age integer;
+alter table public.profiles add column if not exists training_frequency integer;
 -- Ne redemande pas l'onboarding aux comptes déjà existants avant cette mise à jour :
 update public.profiles set onboarded = true where created_at < now();
 
