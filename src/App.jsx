@@ -1776,7 +1776,7 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completed
           { icon: Check, v: sessionsCompleted, l: "Séances réalisées", tone: c.success },
           { icon: Clock, v: fmtMin(totalMinutes), l: "Temps total", tone: c.electric2 },
           { icon: Flame, v: calories.toLocaleString("fr-FR"), l: "Kcal brûlées", tone: c.warning },
-          { icon: Trophy, v: BADGES.filter(b => (b.type === "sessions" && sessionsCompleted >= b.target) || (b.type === "streak" && streak >= b.target) || (b.type === "xp" && xp >= b.target)).length + "/8", l: "Badges débloqués", tone: c.danger },
+          { icon: Trophy, v: BADGES.filter(b => (b.type === "sessions" && sessionsCompleted >= b.target) || (b.type === "streak" && streakInfo.streak >= b.target) || (b.type === "xp" && xp >= b.target)).length + "/8", l: "Badges débloqués", tone: c.danger },
         ].map((s, i) => (
           <Card c={c} key={i} style={{ padding: 14 }}>
             <s.icon size={16} color={s.tone} style={{ marginBottom: 8 }} />
