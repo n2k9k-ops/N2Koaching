@@ -38,6 +38,7 @@ create table if not exists public.profiles (
   subscription_id text,
   subscription_status text not null default 'inactive',
   streak_freeze_used_at timestamptz,
+  access_expires_at timestamptz,
   created_at timestamptz not null default now()
 );
 
@@ -47,6 +48,7 @@ alter table public.profiles add column if not exists last_session_at timestamptz
 alter table public.profiles add column if not exists program_start_at timestamptz default now();
 alter table public.profiles add column if not exists onboarded boolean not null default false;
 alter table public.profiles add column if not exists streak_freeze_used_at timestamptz;
+alter table public.profiles add column if not exists access_expires_at timestamptz;
 alter table public.profiles add column if not exists revoke_reason text;
 alter table public.profiles drop constraint if exists profiles_status_check;
 alter table public.profiles add constraint profiles_status_check check (status in ('pending', 'approved', 'rejected', 'revoked'));
@@ -111,6 +113,7 @@ begin
     new.subscription_id := old.subscription_id;
     new.subscription_status := old.subscription_status;
     new.revoke_reason := old.revoke_reason;
+    new.access_expires_at := old.access_expires_at;
   end if;
   return new;
 end;
@@ -311,6 +314,46 @@ drop policy if exists "custom_exercises_admin_all" on public.custom_exercises;
 create policy "custom_exercises_admin_all" on public.custom_exercises
   for all using (public.is_admin(auth.uid()))
   with check (public.is_admin(auth.uid()));
+
+-- ============================================================
+-- PHOTOS DE PROGRESSION (envoi client, réponse du coach)
+-- ============================================================
+create table if not exists public.progress_photos (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  photo_url text not null,
+  note text,
+  coach_reply text,
+  coach_reply_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+alter table public.progress_photos enable row level security;
+
+drop policy if exists "progress_photos_select" on public.progress_photos;
+create policy "progress_photos_select" on public.progress_photos
+  for select using (profile_id = auth.uid() or public.is_admin(auth.uid()));
+
+drop policy if exists "progress_photos_insert" on public.progress_photos;
+create policy "progress_photos_insert" on public.progress_photos
+  for insert with check (profile_id = auth.uid());
+
+-- Seul le coach peut modifier une ligne (pour y ajouter sa réponse)
+drop policy if exists "progress_photos_admin_update" on public.progress_photos;
+create policy "progress_photos_admin_update" on public.progress_photos
+  for update using (public.is_admin(auth.uid()));
+
+insert into storage.buckets (id, name, public)
+values ('progress-photos', 'progress-photos', true)
+on conflict (id) do nothing;
+
+drop policy if exists "progress_photos_bucket_read" on storage.objects;
+create policy "progress_photos_bucket_read" on storage.objects
+  for select using (bucket_id = 'progress-photos');
+
+drop policy if exists "progress_photos_bucket_write" on storage.objects;
+create policy "progress_photos_bucket_write" on storage.objects
+  for insert with check (bucket_id = 'progress-photos' and (storage.foldername(name))[1] = auth.uid()::text);
 
 -- ============================================================
 -- ÉTAPE MANUELLE : créer votre premier compte coach

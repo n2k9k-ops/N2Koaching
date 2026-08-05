@@ -17,6 +17,8 @@ import {
   listTemplates, saveTemplate, deleteTemplate,
   listMessages, sendMessage, markMessagesRead,
   logWeight, listWeightLogs, uploadExercisePhoto, updateStreakFreezeUsedAt,
+  uploadProgressPhoto, createProgressPhoto, listProgressPhotos, replyToProgressPhoto,
+  approveWithDuration, renewAccess,
   logExerciseSet, getLastExercisePerformance, getSessionExerciseLogs,
   listCustomExercises, createCustomExercise,
   sendPasswordReset, updatePassword,
@@ -1620,6 +1622,7 @@ const Drawer = ({ c, open, onClose, tab, setTab, profile, onLogout }) => {
     { id: "programs", icon: Dumbbell, label: "Programmes" },
     { id: "calendar", icon: CalendarIcon, label: "Calendrier" },
     { id: "messages", icon: MessageCircle, label: "Messages" },
+    { id: "photos", icon: Camera, label: "Photos" },
     { id: "nutrition", icon: Apple, label: "Nutrition" },
     { id: "profile", icon: User, label: "Profil" },
   ];
@@ -2474,7 +2477,7 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
         )}
 
         {phase === "resting" && (
-          <div className="anim-pop" style={{ width: "100%", maxWidth: 300 }}>
+          <div className="anim-pop" style={{ width: "100%", maxWidth: 300, display: "flex", flexDirection: "column", alignItems: "center" }}>
             <Ring pct={restPct} size={220} stroke={14} c={c}>
               <div style={{ textAlign: "center" }}>
                 <div className="ff-mono anim-softPulse" style={{ fontSize: 52, fontWeight: 700, color: c.text, lineHeight: 1 }}>{restRemaining}</div>
@@ -2484,7 +2487,7 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
             <div className="ff-display" style={{ fontSize: 17, fontWeight: 700, marginTop: 24, display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
               <Timer size={16} color={c.electric2} /> Temps de repos
             </div>
-            <div style={{ fontSize: 12.5, color: c.muted, marginTop: 6, marginBottom: 20 }}>Série {activeIdx + 1} débloquée automatiquement</div>
+            <div style={{ fontSize: 12.5, color: c.muted, marginTop: 6, marginBottom: 20, textAlign: "center" }}>Série {activeIdx + 1} débloquée automatiquement</div>
             <SecondaryBtn c={c} full icon={ChevronRight} onClick={skipRest}>Passer le repos</SecondaryBtn>
             <button onClick={undoLastSet} style={{ background: "none", border: "none", color: c.muted, fontSize: 11.5, cursor: "pointer", marginTop: 12, display: "flex", alignItems: "center", gap: 5, justifyContent: "center", width: "100%" }}>
               <RotateCcw size={12} /> Annuler la dernière série
@@ -2731,6 +2734,104 @@ const Calendar = ({ c, completedSessions }) => {
 /* ============================================================
    NUTRITION
 ============================================================ */
+const ProgressPhotos = ({ c, profileId }) => {
+  const [photos, setPhotos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [note, setNote] = useState("");
+  const [pendingUrl, setPendingUrl] = useState("");
+  const [error, setError] = useState("");
+  const fileInputRef = useRef(null);
+
+  const load = () => {
+    if (!profileId) { setLoading(false); return; }
+    setLoading(true);
+    listProgressPhotos(profileId).then(setPhotos).catch(() => {}).finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, [profileId]);
+
+  const handleFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file || !profileId) return;
+    setUploading(true); setError("");
+    try {
+      const url = await uploadProgressPhoto(file, profileId);
+      setPendingUrl(url);
+    } catch (err) { setError("Envoi impossible."); }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const submit = async () => {
+    if (!pendingUrl || !profileId) return;
+    setUploading(true);
+    try {
+      await createProgressPhoto(profileId, pendingUrl, note.trim());
+      setPendingUrl(""); setNote("");
+      load();
+    } catch (e) { setError("Enregistrement impossible."); }
+    setUploading(false);
+  };
+
+  return (
+    <div style={{ padding: "18px 18px 30px" }} className="anim-fadeIn">
+      <SectionTitle c={c}>Envoyer une photo à votre coach</SectionTitle>
+      <Card c={c} style={{ marginBottom: 20 }}>
+        {pendingUrl ? (
+          <div style={{ marginBottom: 12 }}>
+            <img src={pendingUrl} alt="" style={{ width: "100%", maxHeight: 260, objectFit: "cover", borderRadius: 12, display: "block" }} />
+          </div>
+        ) : (
+          <button onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading} style={{
+            width: "100%", padding: "22px", borderRadius: 14, border: `1.5px dashed ${c.border}`, background: c.surface2,
+            color: c.muted, fontSize: 12.5, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, marginBottom: 12
+          }}>
+            <Camera size={22} color={c.electric2} />
+            {uploading ? "Envoi..." : "Choisir une photo"}
+          </button>
+        )}
+        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
+        <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Note pour votre coach (optionnel) — ex : Semaine 3, -1kg"
+          style={{ ...inputStyle(c), minHeight: 60, resize: "vertical", marginBottom: 12 }} />
+        {error && <div style={{ fontSize: 12, color: c.danger, marginBottom: 10 }}>{error}</div>}
+        <PrimaryBtn c={c} full icon={Check} disabled={!pendingUrl || uploading} onClick={submit}>
+          {uploading ? "Envoi..." : "Envoyer au coach"}
+        </PrimaryBtn>
+      </Card>
+
+      <SectionTitle c={c}>Historique</SectionTitle>
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 30, color: c.muted, fontSize: 12.5 }}>Chargement...</div>
+      ) : photos.length === 0 ? (
+        <Card c={c} style={{ textAlign: "center", padding: 24, color: c.muted, fontSize: 12.5 }}>
+          Aucune photo envoyée pour l'instant.
+        </Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {photos.map(p => (
+            <Card c={c} key={p.id} style={{ padding: 14 }}>
+              <img src={p.photoUrl} alt="" style={{ width: "100%", maxHeight: 260, objectFit: "cover", borderRadius: 12, display: "block", marginBottom: 10 }} />
+              <div style={{ fontSize: 11, color: c.muted, marginBottom: p.note ? 6 : 0 }}>
+                {new Date(p.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}
+              </div>
+              {p.note && <p style={{ fontSize: 13, margin: "0 0 10px" }}>{p.note}</p>}
+              {p.coachReply && (
+                <div style={{ background: "rgba(0,113,227,0.08)", borderRadius: 12, padding: 12, marginTop: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <UserCog size={12} color={c.electric2} />
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: c.electric2, textTransform: "uppercase" }}>Réponse du coach</span>
+                  </div>
+                  <p style={{ fontSize: 13, margin: 0, lineHeight: 1.5 }}>{p.coachReply}</p>
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Nutrition = ({ c, profile, water, setWater }) => {
   const [weight, setWeight] = useState(profile.weight);
   const [height, setHeight] = useState(profile.height);
@@ -3397,11 +3498,75 @@ function fmtRelative(dateStr) {
   return `Il y a ${days} j`;
 }
 
-const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuilder, editing, onCloseBuilder, onSaveCustom, templates, otherClients, onSaveTemplate, onRevoke, onRestore }) => {
+const ClientPhotosPanel = ({ c, clientId }) => {
+  const [photos, setPhotos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [replyDrafts, setReplyDrafts] = useState({});
+  const [saving, setSaving] = useState(null);
+
+  const load = () => {
+    setLoading(true);
+    listProgressPhotos(clientId).then(ps => {
+      setPhotos(ps);
+      setReplyDrafts(d => {
+        const next = { ...d };
+        ps.forEach(p => { if (next[p.id] === undefined) next[p.id] = p.coachReply || ""; });
+        return next;
+      });
+    }).catch(() => {}).finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, [clientId]);
+
+  const sendReply = async (photoId) => {
+    setSaving(photoId);
+    try {
+      await replyToProgressPhoto(photoId, replyDrafts[photoId] || "");
+      setPhotos(ps => ps.map(p => p.id === photoId ? { ...p, coachReply: replyDrafts[photoId] } : p));
+    } catch (e) { /* réessaiera */ }
+    setSaving(null);
+  };
+
+  if (loading) return <div style={{ textAlign: "center", padding: 20, color: c.muted, fontSize: 12 }}>Chargement...</div>;
+  if (photos.length === 0) return <div style={{ textAlign: "center", padding: 20, color: c.muted, fontSize: 12 }}>Aucune photo envoyée par ce client.</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 420, overflowY: "auto" }}>
+      {photos.map(p => (
+        <div key={p.id} style={{ background: c.surface, borderRadius: 12, padding: 10 }}>
+          <img src={p.photoUrl} alt="" style={{ width: "100%", maxHeight: 200, objectFit: "cover", borderRadius: 10, display: "block", marginBottom: 8 }} />
+          <div style={{ fontSize: 10.5, color: c.muted, marginBottom: 4 }}>{new Date(p.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</div>
+          {p.note && <p style={{ fontSize: 12, margin: "0 0 8px" }}>{p.note}</p>}
+          <textarea value={replyDrafts[p.id] || ""} onChange={e => setReplyDrafts(d => ({ ...d, [p.id]: e.target.value }))}
+            placeholder="Répondre à cette photo..." style={{ ...inputStyle(c), minHeight: 50, resize: "vertical", fontSize: 12, marginBottom: 8 }} />
+          <PrimaryBtn c={c} full icon={Send} disabled={saving === p.id} onClick={() => sendReply(p.id)} style={{ padding: "8px 14px", fontSize: 12 }}>
+            {saving === p.id ? "Envoi..." : "Envoyer la réponse"}
+          </PrimaryBtn>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const DURATION_OPTIONS = [
+  { label: "1 semaine", days: 7 },
+  { label: "1 mois", days: 30 },
+  { label: "3 mois", days: 90 },
+  { label: "6 mois", days: 182 },
+  { label: "1 an", days: 365 },
+  { label: "Illimité", days: null },
+];
+
+const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuilder, editing, onCloseBuilder, onSaveCustom, templates, otherClients, onSaveTemplate, onRevoke, onRestore, onRenew }) => {
   const assigned = resolveAssignedProgram(client);
   const [showChat, setShowChat] = useState(false);
+  const [showPhotos, setShowPhotos] = useState(false);
   const [showRevokeForm, setShowRevokeForm] = useState(false);
   const [revokeReasonText, setRevokeReasonText] = useState("");
+  const [duration, setDuration] = useState(30);
+  const [showRenew, setShowRenew] = useState(false);
+  const [renewDuration, setRenewDuration] = useState(30);
+
+  const expired = client.status === "approved" && client.accessExpiresAt && new Date(client.accessExpiresAt) < new Date();
 
   return (
     <Card c={c} style={{ marginBottom: 10 }}>
@@ -3414,15 +3579,28 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
           <div style={{ fontSize: 11, color: c.muted }}>{client.email}</div>
         </div>
         {client.status === "pending" && <Pill c={c} tone="warning">En attente</Pill>}
-        {client.status === "approved" && <Pill c={c} tone="success">Actif</Pill>}
+        {client.status === "approved" && !expired && <Pill c={c} tone="success">Actif</Pill>}
+        {expired && <Pill c={c} tone="danger">Expiré</Pill>}
         {client.status === "rejected" && <Pill c={c} tone="danger">Refusé</Pill>}
         {client.status === "revoked" && <Pill c={c} tone="danger">Révoqué</Pill>}
       </div>
 
       {client.status === "pending" && (
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <SecondaryBtn c={c} full icon={XCircle} onClick={() => onReject(client)} style={{ color: c.danger }}>Refuser</SecondaryBtn>
-          <PrimaryBtn c={c} full icon={ShieldCheck} onClick={() => onApprove(client)}>Valider</PrimaryBtn>
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 11, color: c.muted, marginBottom: 6, fontWeight: 700 }}>Durée d'accès à accorder</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+            {DURATION_OPTIONS.map(opt => (
+              <button key={opt.label} onClick={() => setDuration(opt.days)} style={{
+                padding: "6px 11px", borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                border: `1px solid ${duration === opt.days ? "transparent" : c.border}`,
+                background: duration === opt.days ? c.gradA : c.surface2, color: duration === opt.days ? "#fff" : c.muted
+              }}>{opt.label}</button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <SecondaryBtn c={c} full icon={XCircle} onClick={() => onReject(client)} style={{ color: c.danger }}>Refuser</SecondaryBtn>
+            <PrimaryBtn c={c} full icon={ShieldCheck} onClick={() => onApprove(client, duration)}>Valider</PrimaryBtn>
+          </div>
         </div>
       )}
 
@@ -3431,19 +3609,54 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
           <div style={{ fontSize: 11.5, color: c.muted, marginBottom: 8 }}>
             Programme actuel : <b style={{ color: c.text }}>{assigned ? assigned.name : "Aucun (bibliothèque libre)"}</b>
           </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: (editing || showChat) ? 12 : 8 }}>
+          <div style={{ fontSize: 11.5, color: expired ? c.danger : c.muted, marginBottom: 10 }}>
+            {client.accessExpiresAt
+              ? `${expired ? "Expiré le" : "Accès valide jusqu'au"} ${new Date(client.accessExpiresAt).toLocaleDateString("fr-FR")}`
+              : "Accès illimité"}
+          </div>
+
+          {(expired || showRenew) ? (
+            <div style={{ background: c.surface2, borderRadius: 12, padding: 10, marginBottom: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700 }}>Renouveler pour :</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {DURATION_OPTIONS.map(opt => (
+                  <button key={opt.label} onClick={() => setRenewDuration(opt.days)} style={{
+                    padding: "6px 11px", borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                    border: `1px solid ${renewDuration === opt.days ? "transparent" : c.border}`,
+                    background: renewDuration === opt.days ? c.gradA : c.surface, color: renewDuration === opt.days ? "#fff" : c.muted
+                  }}>{opt.label}</button>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {!expired && <SecondaryBtn c={c} full onClick={() => setShowRenew(false)}>Annuler</SecondaryBtn>}
+                <PrimaryBtn c={c} full icon={RefreshCw} onClick={() => { onRenew(client, renewDuration); setShowRenew(false); }}>Renouveler</PrimaryBtn>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowRenew(true)} style={{ background: "none", border: "none", color: c.electric2, fontSize: 11.5, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, padding: 0, marginBottom: 10 }}>
+              <RefreshCw size={12} /> Modifier la durée d'accès
+            </button>
+          )}
+
+          <div style={{ display: "flex", gap: 8, marginBottom: (editing || showChat || showPhotos) ? 12 : 8 }}>
             <select style={{ ...inputStyle(c), flex: 1, padding: "9px 10px", fontSize: 12.5 }} value={client.assignedProgramId || ""} onChange={e => onAssignLibrary(client, e.target.value)}>
               <option value="">— Assigner depuis la bibliothèque —</option>
               {PROGRAMS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
-            <SecondaryBtn c={c} icon={Edit3} onClick={() => { onOpenBuilder(client); setShowChat(false); }}>{editing ? "Fermer" : "Sur-mesure"}</SecondaryBtn>
-            <SecondaryBtn c={c} icon={MessageCircle} onClick={() => { setShowChat(!showChat); if (editing) onCloseBuilder(); }} />
+            <SecondaryBtn c={c} icon={Edit3} onClick={() => { onOpenBuilder(client); setShowChat(false); setShowPhotos(false); }}>{editing ? "Fermer" : "Sur-mesure"}</SecondaryBtn>
+            <SecondaryBtn c={c} icon={MessageCircle} onClick={() => { setShowChat(!showChat); setShowPhotos(false); if (editing) onCloseBuilder(); }} />
+            <SecondaryBtn c={c} icon={Camera} onClick={() => { setShowPhotos(!showPhotos); setShowChat(false); if (editing) onCloseBuilder(); }} />
           </div>
           {editing && <ProgramBuilder c={c} client={client} onCancel={onCloseBuilder} onSave={(prog) => onSaveCustom(client, prog)}
             templates={templates} otherClients={otherClients} onSaveTemplate={onSaveTemplate} />}
           {showChat && (
             <div style={{ height: 340, background: c.surface2, borderRadius: 14, padding: 12, marginBottom: 8 }}>
               <MessageThread c={c} clientId={client.id} isAdmin={true} peerName={client.name} />
+            </div>
+          )}
+          {showPhotos && (
+            <div style={{ background: c.surface2, borderRadius: 14, padding: 12, marginBottom: 8 }}>
+              <ClientPhotosPanel c={c} clientId={client.id} />
             </div>
           )}
 
@@ -3535,9 +3748,10 @@ const AdminPanel = ({ c, onExit }) => {
   };
   useEffect(() => { load(); }, []);
 
-  const approve = async (client) => {
-    setAccounts(prev => prev.map(a => a.id === client.id ? { ...a, status: "approved" } : a));
-    try { await setProfileStatus(client.id, "approved"); } catch (e) { setErr(e.message); load(); }
+  const approve = async (client, durationDays) => {
+    const accessExpiresAt = durationDays ? new Date(Date.now() + durationDays * 86400000).toISOString() : null;
+    setAccounts(prev => prev.map(a => a.id === client.id ? { ...a, status: "approved", accessExpiresAt } : a));
+    try { await approveWithDuration(client.id, durationDays); } catch (e) { setErr(e.message); load(); }
   };
   const reject = async (client) => {
     setAccounts(prev => prev.map(a => a.id === client.id ? { ...a, status: "rejected" } : a));
@@ -3562,6 +3776,11 @@ const AdminPanel = ({ c, onExit }) => {
   const restore = async (client) => {
     setAccounts(prev => prev.map(a => a.id === client.id ? { ...a, status: "approved", revokeReason: "" } : a));
     try { await restoreAccess(client.id); } catch (e) { setErr(e.message); load(); }
+  };
+  const renew = async (client, durationDays) => {
+    const accessExpiresAt = durationDays ? new Date(Date.now() + durationDays * 86400000).toISOString() : null;
+    setAccounts(prev => prev.map(a => a.id === client.id ? { ...a, status: "approved", accessExpiresAt, revokeReason: "" } : a));
+    try { await renewAccess(client.id, durationDays); } catch (e) { setErr(e.message); load(); }
   };
 
   const pending = accounts.filter(a => a.status === "pending");
@@ -3608,7 +3827,7 @@ const AdminPanel = ({ c, onExit }) => {
               ) : pending.map(client => (
                 <ClientRow key={client.id} c={c} client={client} onApprove={approve} onReject={reject}
                   onAssignLibrary={assignLibrary} onOpenBuilder={() => {}} editing={false} onCloseBuilder={() => {}} onSaveCustom={() => {}}
-                  templates={templates} otherClients={[]} onSaveTemplate={handleSaveTemplate} onRevoke={revoke} onRestore={restore} />
+                  templates={templates} otherClients={[]} onSaveTemplate={handleSaveTemplate} onRevoke={revoke} onRestore={restore} onRenew={renew} />
               ))
             )}
             {tabAdmin === "clients" && (
@@ -3623,7 +3842,7 @@ const AdminPanel = ({ c, onExit }) => {
                   onSaveCustom={saveCustom}
                   templates={templates}
                   otherClients={approvedClients.filter(o => o.id !== client.id && o.customProgram)}
-                  onSaveTemplate={handleSaveTemplate} onRevoke={revoke} onRestore={restore} />
+                  onSaveTemplate={handleSaveTemplate} onRevoke={revoke} onRestore={restore} onRenew={renew} />
               ))
             )}
             {tabAdmin === "overview" && <OverviewTab c={c} clients={approvedClients} />}
@@ -3665,7 +3884,7 @@ export default function App() {
     name: "Athlète", weight: 75, height: 175, goal: "Perte de poids", sportLevel: "Débutant",
     xp: 0, level: 1, streak: 0, sessionsCompleted: 0, totalMinutes: 0, calories: 0,
     status: "pending", assignedProgramId: null, customProgram: null,
-    age: null, gender: null, injuries: "", avatarUrl: null, streakFreezeUsedAt: null,
+    age: null, gender: null, injuries: "", avatarUrl: null, streakFreezeUsedAt: null, accessExpiresAt: null,
   });
   const saveTimer = useRef(null);
 
@@ -3683,6 +3902,7 @@ export default function App() {
       subscriptionStatus: profile.subscriptionStatus || "inactive",
       revokeReason: profile.revokeReason || "",
       streakFreezeUsedAt: profile.streakFreezeUsedAt || null,
+      accessExpiresAt: profile.accessExpiresAt || null,
     });
     setCompletedSessions(profile.completedSessions || {});
     setWater(profile.water ?? 3);
@@ -3695,6 +3915,12 @@ export default function App() {
     applyProfile(profile);
     if (!profile.onboarded) { setScreen("onboarding"); return; }
     if (profile.isAdmin) { setScreen("admin"); return; }
+    const expired = profile.status === "approved" && profile.accessExpiresAt && new Date(profile.accessExpiresAt) < new Date();
+    if (expired) {
+      setState(s => ({ ...s, revokeReason: `Votre accès a expiré le ${new Date(profile.accessExpiresAt).toLocaleDateString("fr-FR")}. Contactez votre coach pour le renouveler.` }));
+      setScreen("revoked");
+      return;
+    }
     if (profile.status === "approved") setScreen("app");
     else if (profile.status === "revoked") setScreen("revoked");
     else if (profile.status === "rejected") setScreen("rejected");
@@ -3819,7 +4045,7 @@ export default function App() {
   }
 
   let content;
-  let title = { home: "Accueil", programs: "Programmes", calendar: "Calendrier", messages: "Messages", nutrition: "Nutrition", profile: "Profil" }[tab];
+  let title = { home: "Accueil", programs: "Programmes", calendar: "Calendrier", messages: "Messages", photos: "Photos", nutrition: "Nutrition", profile: "Profil" }[tab];
   let onBack = null;
 
   if (view.screen === "programDetail") {
@@ -3840,6 +4066,8 @@ export default function App() {
     content = <Calendar c={c} completedSessions={completedSessions} />;
   } else if (tab === "messages") {
     content = <div style={{ padding: 18, height: "calc(100vh - 130px)" }}><MessageThread c={c} clientId={profileId} isAdmin={false} peerName="votre coach" /></div>;
+  } else if (tab === "photos") {
+    content = <ProgressPhotos c={c} profileId={profileId} />;
   } else if (tab === "nutrition") {
     content = <Nutrition c={c} profile={state} water={water} setWater={setWater} />;
   } else if (tab === "profile") {

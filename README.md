@@ -247,3 +247,17 @@ Sur la fiche d'un client actif, un lien discret **"Révoquer l'accès"** ouvre u
 **Streak avec gel mensuel** : jusqu'ici, le compteur de série augmentait bêtement à chaque séance sans jamais vérifier les jours réels — un "gel" n'aurait donc jamais servi à rien. La série est maintenant calculée à partir des vraies dates de séances, avec un **gel gratuit par mois** qui comble automatiquement un jour manqué sans casser la série. Visible dans le Profil et sur le tableau de bord (icône 🧊 quand un gel est disponible).
 
 **Logo** : régénéré en plus haute qualité — police géométrique premium (TeX Gyre Adventor, dans l'esprit Futura), rendu en survolume (4x) puis réduit pour un anti-crénelage net, dégradé diagonal plus fidèle au thème de l'app, reflet subtil et ombre portée légère pour la profondeur.
+
+## Photos hebdo pour le coach, durée d'abonnement, fix centrage repos
+
+⚠️ Relance `supabase/schema.sql` en entier (ajoute `access_expires_at`, la table `progress_photos` et son bucket de stockage).
+
+**Photos de progression** : nouvel onglet "Photos" côté client — upload d'une photo + note optionnelle, historique complet. Côté coach, un bouton 📷 sur chaque client ouvre le fil de ses photos avec un champ de réponse par photo.
+
+⚠️ **Point de confidentialité à connaître** : comme les autres photos de l'app (exercices, avatars), le bucket `progress-photos` est public en lecture — n'importe qui connaissant l'URL exacte (générée avec un timestamp, donc pas devinable facilement) peut la voir. Pour des photos de progression corporelle, c'est plus sensible que les photos d'exercices. Si tu veux un vrai contrôle d'accès (seul le client et le coach peuvent voir), il faudrait passer par des URLs signées à durée limitée — dis-le-moi si tu veux qu'on le fasse, ça demande un peu plus de travail.
+
+**Durée d'abonnement à la validation** : en validant une inscription, le coach choisit maintenant une durée (1 semaine / 1 mois / 3 mois / 6 mois / 1 an / illimité). Une fois la date dépassée, le client tombe automatiquement sur l'écran "accès révoqué" avec la date d'expiration indiquée. Un bouton "Renouveler" permet de prolonger à tout moment, y compris après expiration.
+
+⚠️ **Nuance honnête sur "automatique"** : il n'y a pas de tâche planifiée côté serveur qui coupe l'accès à la seconde précise de l'expiration (ça demanderait une Edge Function + un cron, comme pour Stripe). La vérification se fait à chaque chargement de l'app — dans la pratique, l'accès est coupé au prochain rechargement après l'expiration, ce qui couvre l'immense majorité des cas réels.
+
+**Fix : décompte de repos mal centré** — un bug que j'avais moi-même introduit en ajoutant les boutons "passer"/"annuler" plus tôt. Corrigé.

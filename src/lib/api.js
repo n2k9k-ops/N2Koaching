@@ -34,6 +34,7 @@ function rowToProfile(row) {
     avatarUrl: row.avatar_url,
     subscriptionStatus: row.subscription_status,
     streakFreezeUsedAt: row.streak_freeze_used_at,
+    accessExpiresAt: row.access_expires_at,
   };
 }
 
@@ -151,6 +152,73 @@ export async function listAllProfiles() {
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data.map(rowToProfile);
+}
+
+/* ---------------- Photos de progression (envoi client + réponse coach) ---------------- */
+
+function progressPhotoRowToApp(row) {
+  return {
+    id: row.id, profileId: row.profile_id, photoUrl: row.photo_url, note: row.note,
+    coachReply: row.coach_reply, coachReplyAt: row.coach_reply_at, createdAt: row.created_at,
+  };
+}
+
+export async function uploadProgressPhoto(file, userId) {
+  const ext = file.name.split(".").pop();
+  const path = `${userId}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from("progress-photos").upload(path, file);
+  if (error) throw error;
+  const { data } = supabase.storage.from("progress-photos").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+export async function createProgressPhoto(profileId, photoUrl, note) {
+  const { error } = await supabase.from("progress_photos").insert({
+    profile_id: profileId, photo_url: photoUrl, note: note || null,
+  });
+  if (error) throw error;
+}
+
+export async function listProgressPhotos(profileId) {
+  const { data, error } = await supabase
+    .from("progress_photos")
+    .select("*")
+    .eq("profile_id", profileId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data.map(progressPhotoRowToApp);
+}
+
+export async function replyToProgressPhoto(photoId, reply) {
+  const { error } = await supabase.from("progress_photos").update({
+    coach_reply: reply, coach_reply_at: new Date().toISOString(),
+  }).eq("id", photoId);
+  if (error) throw error;
+}
+
+/* ---------------- Validation avec durée d'abonnement ---------------- */
+
+/** Valide un compte en attente et fixe une date d'expiration d'accès
+ *  (durationDays = null pour un accès illimité). */
+export async function approveWithDuration(id, durationDays) {
+  const accessExpiresAt = durationDays
+    ? new Date(Date.now() + durationDays * 86400000).toISOString()
+    : null;
+  const { error } = await supabase.from("profiles").update({
+    status: "approved", access_expires_at: accessExpiresAt,
+  }).eq("id", id);
+  if (error) throw error;
+}
+
+/** Renouvelle/prolonge l'accès d'un client déjà validé (ou expiré). */
+export async function renewAccess(id, durationDays) {
+  const accessExpiresAt = durationDays
+    ? new Date(Date.now() + durationDays * 86400000).toISOString()
+    : null;
+  const { error } = await supabase.from("profiles").update({
+    status: "approved", access_expires_at: accessExpiresAt, revoke_reason: null,
+  }).eq("id", id);
+  if (error) throw error;
 }
 
 export async function setProfileStatus(id, status) {
