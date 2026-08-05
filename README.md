@@ -117,3 +117,13 @@ n2koaching/
 
 Un lien YouTube optionnel peut être attaché à chaque exercice quand tu construis une séance sur-mesure (que tu piochais dans la bibliothèque ou que tu crées un exercice personnalisé). Si un lien est renseigné, la vidéo s'affiche intégrée directement dans l'app (mode focus). Sans lien renseigné, un bouton "Rechercher une démonstration vidéo" ouvre une recherche YouTube pré-remplie avec le nom de l'exercice.
 
+
+## Données réelles partout (plus de démo)
+
+- **Défis du jour** : calculés à partir de vos vraies données (hydratation, séances loggées aujourd'hui, calories réelles du jour).
+- **Activité de la semaine** : graphique basé sur les séances effectivement complétées, pas des chiffres fixes.
+- **Calendrier** : statistiques du mois/semaine et grille calendaire construites à partir des dates réelles de complétion, historique récent réel.
+- **Évolution du poids** (Profil) : nouvelle table `weight_logs` — un bouton "Enregistrer" permet de logger son poids à tout moment, le graphique se construit avec les vraies données au fil des semaines.
+- **Photos par exercice** : un bucket de stockage Supabase (`exercise-photos`, public en lecture, écriture réservée au coach) permet d'attacher une photo de référence à n'importe quel exercice depuis le constructeur de séance sur-mesure, affichée en mode focus à côté de la vidéo.
+
+⚠️ Comme pour les mises à jour précédentes : relance `supabase/schema.sql` en entier dans le SQL Editor (ajoute la table `weight_logs` et le bucket `exercise-photos`, sans risque à rejouer).

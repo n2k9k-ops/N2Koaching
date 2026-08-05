@@ -172,6 +172,34 @@ export async function deleteTemplate(id) {
   if (error) throw error;
 }
 
+/* ---------------- Historique de poids ---------------- */
+
+export async function logWeight(profileId, weight) {
+  const { error } = await supabase.from("weight_logs").insert({ profile_id: profileId, weight });
+  if (error) throw error;
+}
+
+export async function listWeightLogs(profileId) {
+  const { data, error } = await supabase
+    .from("weight_logs")
+    .select("*")
+    .eq("profile_id", profileId)
+    .order("logged_at", { ascending: true });
+  if (error) throw error;
+  return data.map(r => ({ weight: r.weight, loggedAt: r.logged_at }));
+}
+
+/* ---------------- Photos de référence par exercice ---------------- */
+
+export async function uploadExercisePhoto(file) {
+  const ext = file.name.split(".").pop();
+  const path = `${Date.now()}-${Math.round(Math.random() * 1e6)}.${ext}`;
+  const { error } = await supabase.storage.from("exercise-photos").upload(path, file);
+  if (error) throw error;
+  const { data } = supabase.storage.from("exercise-photos").getPublicUrl(path);
+  return data.publicUrl;
+}
+
 /* ---------------- Messagerie coach ↔ client ---------------- */
 
 export async function listMessages(clientId) {

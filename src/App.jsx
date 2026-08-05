@@ -8,7 +8,7 @@ import {
   Building2, HomeIcon, Coffee, UserPlus, LogIn, Eye, EyeOff, Users,
   ClipboardList, ShieldCheck, XCircle, Send, Edit3, Hourglass, RefreshCw,
   UserCog, MailX, Copy, Bookmark, MessageCircle, AlertTriangle, CheckCheck,
-  LayoutDashboard, PlayCircle
+  LayoutDashboard, PlayCircle, Camera
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import {
@@ -16,6 +16,7 @@ import {
   listAllProfiles, setProfileStatus, assignLibraryProgram, assignCustomProgram,
   listTemplates, saveTemplate, deleteTemplate,
   listMessages, sendMessage, markMessagesRead,
+  logWeight, listWeightLogs, uploadExercisePhoto,
 } from "./lib/api.js";
 import {
   LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, BarChart, Bar, CartesianGrid
@@ -606,6 +607,38 @@ function exportProgramToPDF(program) {
   doc.save(`${program.name.replace(/[^a-z0-9]+/gi, "_")}.pdf`);
 }
 
+function isSameDay(a, b) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
+function computeDailyStats(completedSessions) {
+  const today = new Date();
+  let sessionsToday = 0, caloriesToday = 0;
+  Object.values(completedSessions).forEach(entry => {
+    if (!entry || !entry.completedAt) return;
+    if (isSameDay(new Date(entry.completedAt), today)) { sessionsToday++; caloriesToday += entry.calories || 0; }
+  });
+  return { sessionsToday, caloriesToday };
+}
+function computeWeeklyActivity(completedSessions) {
+  const now = new Date();
+  const offset = (now.getDay() + 6) % 7; // lundi = 0
+  const monday = new Date(now); monday.setHours(0, 0, 0, 0); monday.setDate(now.getDate() - offset);
+  const counts = [0, 0, 0, 0, 0, 0, 0];
+  Object.values(completedSessions).forEach(entry => {
+    if (!entry || !entry.completedAt) return;
+    const d = new Date(entry.completedAt); d.setHours(0, 0, 0, 0);
+    const diff = Math.round((d.getTime() - monday.getTime()) / 86400000);
+    if (diff >= 0 && diff < 7) counts[diff]++;
+  });
+  return ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d, i) => ({ d, n: counts[i] }));
+}
+function computeCalendarHistory(completedSessions, year, month) {
+  const history = {};
+  Object.values(completedSessions).forEach(entry => {
+    if (!entry || !entry.completedAt) return;
+    const d = new Date(entry.completedAt);
+    if (d.getFullYear() === year && d.getMonth() === month) history[d.getDate()] = "done";
+  });
+  return history;
+}
 
 const QUOTES = [
   "La discipline, c'est se souvenir de ce que l'on veut.",
@@ -708,6 +741,48 @@ const VideoBlock = ({ c, videoUrl, exerciseName }) => {
         <PlayCircle size={16} /> Rechercher une démonstration vidéo
       </div>
     </a>
+  );
+};
+
+
+const PhotoUploadField = ({ c, value, onChange, label = "Photo de l'exercice (optionnel)" }) => {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const inputRef = useRef(null);
+
+  const handleFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setUploading(true); setError("");
+    try {
+      const url = await uploadExercisePhoto(file);
+      onChange(url);
+    } catch (err) { setError("Envoi impossible."); }
+    setUploading(false);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 9.5, color: c.muted, marginBottom: 4 }}>{label}</div>
+      {value ? (
+        <div style={{ position: "relative", borderRadius: 10, overflow: "hidden" }}>
+          <img src={value} alt="" style={{ width: "100%", height: 110, objectFit: "cover", display: "block" }} />
+          <button onClick={() => onChange("")} style={{ position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: "50%", background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <X size={13} />
+          </button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => inputRef.current && inputRef.current.click()} disabled={uploading} style={{
+          width: "100%", padding: "12px", borderRadius: 10, border: `1px dashed ${c.border}`, background: c.surface2,
+          color: c.muted, fontSize: 11.5, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6
+        }}>
+          <Camera size={14} /> {uploading ? "Envoi..." : "Ajouter une photo"}
+        </button>
+      )}
+      {error && <div style={{ fontSize: 10.5, color: c.danger, marginTop: 4 }}>{error}</div>}
+      <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
+    </div>
   );
 };
 
@@ -1334,13 +1409,15 @@ const Drawer = ({ c, open, onClose, tab, setTab, profile, onLogout }) => {
 /* ============================================================
    DASHBOARD
 ============================================================ */
-const Dashboard = ({ c, state, quote, openProgram, openSession, goTab }) => {
+const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completedSessions, water }) => {
   const { xp, level, streak, sessionsCompleted, totalMinutes, calories, name } = state;
   const curLevelXp = xpForLevel(level - 1);
   const nextLevelXp = xpForLevel(level);
   const pct = ((xp - curLevelXp) / (nextLevelXp - curLevelXp)) * 100;
   const assigned = resolveAssignedProgram(state);
   const today = assigned ? computeTodaySession(state) : null;
+  const dailyStats = computeDailyStats(completedSessions);
+  const weeklyActivity = computeWeeklyActivity(completedSessions);
   const featured = [PROGRAMS.find(p => p.id === "ppl"), PROGRAMS.find(p => p.id === "upper-lower"), PROGRAMS.find(p => p.id === "maison")];
 
   return (
@@ -1459,9 +1536,9 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab }) => {
       <SectionTitle c={c}>Défis du jour</SectionTitle>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
         {[
-          { t: "Boire 2L d'eau", p: 62, icon: Droplet },
-          { t: "1 séance terminée", p: 100, icon: Check },
-          { t: "500 kcal brûlées", p: 74, icon: Flame },
+          { t: "Boire 2L d'eau", p: Math.min(100, Math.round((water / 8) * 100)), icon: Droplet },
+          { t: "1 séance terminée", p: dailyStats.sessionsToday > 0 ? 100 : 0, icon: Check },
+          { t: "500 kcal brûlées", p: Math.min(100, Math.round((dailyStats.caloriesToday / 500) * 100)), icon: Flame },
         ].map((ch, i) => (
           <Card c={c} key={i} style={{ padding: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
@@ -1470,7 +1547,7 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab }) => {
               <span className="ff-mono" style={{ fontSize: 11.5, color: c.muted }}>{ch.p}%</span>
             </div>
             <div style={{ height: 6, background: c.surface2, borderRadius: 4, overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${ch.p}%`, background: c.gradA, borderRadius: 4 }} />
+              <div style={{ height: "100%", width: `${ch.p}%`, background: c.gradA, borderRadius: 4, transition: "width .4s ease" }} />
             </div>
           </Card>
         ))}
@@ -1479,10 +1556,10 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab }) => {
       <SectionTitle c={c}>Activité de la semaine</SectionTitle>
       <Card c={c} style={{ paddingTop: 16 }}>
         <ResponsiveContainer width="100%" height={140}>
-          <BarChart data={WEEKLY_SESSIONS}>
+          <BarChart data={weeklyActivity}>
             <XAxis dataKey="d" tick={{ fill: c.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis hide />
-            <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.border}`, borderRadius: 10, fontSize: 12 }} />
+            <YAxis hide allowDecimals={false} />
+            <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.border}`, borderRadius: 10, fontSize: 12 }} formatter={(v) => [`${v} séance${v > 1 ? "s" : ""}`, ""]} />
             <Bar dataKey="n" radius={[6, 6, 6, 6]} fill={c.electric} />
           </BarChart>
         </ResponsiveContainer>
@@ -1948,6 +2025,9 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
 
       {infoOpen && (
         <Card c={c} style={{ marginBottom: 14, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          {exercise.photoUrl && (
+            <img src={exercise.photoUrl} alt={exercise.name} style={{ width: "100%", maxHeight: 220, objectFit: "cover", borderRadius: 12, display: "block" }} />
+          )}
           {exercise.tips && <div style={{ display: "flex", gap: 8, fontSize: 12.5 }}><Info size={14} color={c.electric2} style={{ flexShrink: 0, marginTop: 1 }} /><span><b>Conseil :</b> {exercise.tips}</span></div>}
           {exercise.safety && <div style={{ display: "flex", gap: 8, fontSize: 12.5 }}><Shield size={14} color={c.warning} style={{ flexShrink: 0, marginTop: 1 }} /><span><b>Sécurité :</b> {exercise.safety}</span></div>}
           <VideoBlock c={c} videoUrl={exercise.videoUrl} exerciseName={exercise.name} />
@@ -2152,7 +2232,16 @@ const SessionDetail = ({ c, session, onComplete, completed }) => {
 /* ============================================================
    CALENDAR
 ============================================================ */
-const Calendar = ({ c, history }) => {
+function fmtRelativeDay(dateStr) {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const days = Math.floor((new Date(now).setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+  if (days === 0) return "Aujourd'hui";
+  if (days === 1) return "Hier";
+  return `Il y a ${days} jours`;
+}
+
+const Calendar = ({ c, completedSessions }) => {
   const now = new Date();
   const year = now.getFullYear(), month = now.getMonth();
   const first = new Date(year, month, 1);
@@ -2161,12 +2250,22 @@ const Calendar = ({ c, history }) => {
   const monthName = now.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
   const cells = [...Array(startOffset)].map(() => null).concat([...Array(daysInMonth)].map((_, i) => i + 1));
 
+  const entries = Object.values(completedSessions).filter(e => e && e.completedAt);
+  const history = computeCalendarHistory(completedSessions, year, month);
+  const sessionsThisMonth = entries.filter(e => { const d = new Date(e.completedAt); return d.getFullYear() === year && d.getMonth() === month; }).length;
+
+  const weekOffset = (now.getDay() + 6) % 7;
+  const monday = new Date(now); monday.setHours(0, 0, 0, 0); monday.setDate(now.getDate() - weekOffset);
+  const sessionsThisWeek = entries.filter(e => { const d = new Date(e.completedAt); d.setHours(0, 0, 0, 0); return d >= monday; }).length;
+
+  const recent = [...entries].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).slice(0, 8);
+
   return (
     <div style={{ padding: "18px 18px 30px" }} className="anim-fadeIn">
       <SectionTitle c={c}>Statistiques</SectionTitle>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
-        <Card c={c}><div className="ff-mono" style={{ fontWeight: 700, fontSize: 20 }}>18</div><div style={{ fontSize: 11.5, color: c.muted }}>Séances ce mois-ci</div></Card>
-        <Card c={c}><div className="ff-mono" style={{ fontWeight: 700, fontSize: 20 }}>4/5</div><div style={{ fontSize: 11.5, color: c.muted }}>Séances cette semaine</div></Card>
+        <Card c={c}><div className="ff-mono" style={{ fontWeight: 700, fontSize: 20 }}>{sessionsThisMonth}</div><div style={{ fontSize: 11.5, color: c.muted }}>Séances ce mois-ci</div></Card>
+        <Card c={c}><div className="ff-mono" style={{ fontWeight: 700, fontSize: 20 }}>{sessionsThisWeek}</div><div style={{ fontSize: 11.5, color: c.muted }}>Séances cette semaine</div></Card>
       </div>
 
       <SectionTitle c={c}>{monthName.charAt(0).toUpperCase() + monthName.slice(1)}</SectionTitle>
@@ -2181,7 +2280,7 @@ const Calendar = ({ c, history }) => {
             if (!day) return <div key={i} />;
             const state = history[day] || "none";
             const isToday = day === now.getDate();
-            const bg = state === "done" ? c.gradA : state === "rest" ? c.surface2 : "transparent";
+            const bg = state === "done" ? c.gradA : "transparent";
             return (
               <div key={i} style={{
                 aspectRatio: "1", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
@@ -2195,28 +2294,29 @@ const Calendar = ({ c, history }) => {
         </div>
         <div style={{ display: "flex", gap: 14, marginTop: 14, fontSize: 11, color: c.muted }}>
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: c.gradA }} /> Séance validée</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: c.surface2, border: `1px solid ${c.border}` }} /> Repos</div>
         </div>
       </Card>
 
       <SectionTitle c={c} action={null}>Historique récent</SectionTitle>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {[
-          { d: "Hier", t: "Push Pull Legs — Jour Push", m: 58, k: 420 },
-          { d: "Il y a 2 jours", t: "Upper Lower — Jour Lower", m: 52, k: 390 },
-          { d: "Il y a 4 jours", t: "Cardio Endurance — Rameur", m: 40, k: 380 },
-        ].map((h, i) => (
-          <Card c={c} key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: 14 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 10, background: "rgba(52,211,153,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Check size={16} color={c.success} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600 }}>{h.t}</div>
-              <div style={{ fontSize: 11, color: c.muted }}>{h.d} · {h.m} min · {h.k} kcal</div>
-            </div>
-          </Card>
-        ))}
-      </div>
+      {recent.length === 0 ? (
+        <Card c={c} style={{ textAlign: "center", padding: 24, color: c.muted, fontSize: 12.5 }}>
+          Aucune séance loggée pour l'instant — elle apparaîtra ici dès que vous en terminez une.
+        </Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {recent.map((h, i) => (
+            <Card c={c} key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: 14 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, background: "rgba(52,211,153,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Check size={16} color={c.success} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.title || "Séance"}</div>
+                <div style={{ fontSize: 11, color: c.muted }}>{fmtRelativeDay(h.completedAt)} · {h.minutes} min · {h.calories} kcal</div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -2331,8 +2431,36 @@ const Nutrition = ({ c, profile, water, setWater }) => {
 /* ============================================================
    PROFILE
 ============================================================ */
-const Profile = ({ c, state, dark, setDark, accountEmail }) => {
+const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLogged }) => {
   const { name, weight, height, goal, level, xp, sportLevel } = state;
+  const [logs, setLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(true);
+  const [showLogForm, setShowLogForm] = useState(false);
+  const [logVal, setLogVal] = useState(weight);
+  const [logging, setLogging] = useState(false);
+
+  useEffect(() => {
+    if (!profileId) { setLoadingLogs(false); return; }
+    listWeightLogs(profileId).then(setLogs).catch(() => {}).finally(() => setLoadingLogs(false));
+  }, [profileId]);
+
+  const chartData = logs.map(l => ({
+    s: new Date(l.loggedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
+    kg: l.weight,
+  }));
+
+  const submitLog = async () => {
+    if (!profileId || logVal === "" || isNaN(Number(logVal))) return;
+    setLogging(true);
+    try {
+      await logWeight(profileId, Number(logVal));
+      setLogs(ls => [...ls, { weight: Number(logVal), loggedAt: new Date().toISOString() }]);
+      onWeightLogged(Number(logVal));
+      setShowLogForm(false);
+    } catch (e) { /* réessaiera manuellement */ }
+    setLogging(false);
+  };
+
   const badgesUnlocked = BADGES.map(b => ({
     ...b,
     unlocked: (b.type === "sessions" && state.sessionsCompleted >= b.target) ||
@@ -2373,17 +2501,33 @@ const Profile = ({ c, state, dark, setDark, accountEmail }) => {
         </div>
       </Card>
 
-      <SectionTitle c={c}>Évolution du poids</SectionTitle>
+      <SectionTitle c={c} action={<button onClick={() => { setLogVal(weight); setShowLogForm(!showLogForm); }} style={{ background: "none", border: "none", color: c.electric2, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 3 }}><Plus size={13} /> Enregistrer</button>}>
+        Évolution du poids
+      </SectionTitle>
+      {showLogForm && (
+        <Card c={c} className="anim-fadeIn" style={{ marginBottom: 10, display: "flex", gap: 10, alignItems: "center", padding: 14 }}>
+          <input type="number" value={logVal} onChange={e => setLogVal(e.target.value)} style={{ ...inputStyle(c), flex: 1 }} placeholder="Poids (kg)" />
+          <PrimaryBtn c={c} icon={Check} disabled={logging} onClick={submitLog} style={{ padding: "11px 16px" }}>{logging ? "..." : "OK"}</PrimaryBtn>
+        </Card>
+      )}
       <Card c={c} style={{ marginBottom: 18, paddingTop: 16 }}>
-        <ResponsiveContainer width="100%" height={130}>
-          <LineChart data={WEIGHT_HISTORY}>
-            <CartesianGrid strokeDasharray="3 3" stroke={c.border} vertical={false} />
-            <XAxis dataKey="s" tick={{ fill: c.muted, fontSize: 10.5 }} axisLine={false} tickLine={false} />
-            <YAxis hide domain={["dataMin - 1", "dataMax + 1"]} />
-            <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.border}`, borderRadius: 10, fontSize: 12 }} />
-            <Line type="monotone" dataKey="kg" stroke={c.electric2} strokeWidth={2.5} dot={{ r: 3, fill: c.electric2 }} />
-          </LineChart>
-        </ResponsiveContainer>
+        {loadingLogs ? (
+          <div style={{ textAlign: "center", padding: "30px 0", color: c.muted, fontSize: 12 }}>Chargement...</div>
+        ) : chartData.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "24px 0", color: c.muted, fontSize: 12.5, lineHeight: 1.6 }}>
+            Pas encore de données.<br />Enregistrez votre poids pour voir apparaître votre courbe de progression.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={130}>
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={c.border} vertical={false} />
+              <XAxis dataKey="s" tick={{ fill: c.muted, fontSize: 10.5 }} axisLine={false} tickLine={false} />
+              <YAxis hide domain={["dataMin - 1", "dataMax + 1"]} />
+              <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.border}`, borderRadius: 10, fontSize: 12 }} />
+              <Line type="monotone" dataKey="kg" stroke={c.electric2} strokeWidth={2.5} dot={{ r: 3, fill: c.electric2 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </Card>
 
       <SectionTitle c={c}>Badges & récompenses</SectionTitle>
@@ -2438,6 +2582,7 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
   const [cSafety, setCSafety] = useState("");
   const [cEquip, setCEquip] = useState("");
   const [cVideo, setCVideo] = useState("");
+  const [cPhoto, setCPhoto] = useState("");
 
   const filtered = EXERCISE_LIBRARY.filter(e =>
     (e.location === location || e.location === "both") &&
@@ -2451,9 +2596,9 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
       id: `custom-${Date.now()}`, cat: cCat, location, name: cName.trim(),
       sets: Number(cSets) || 3, reps: cReps.trim() || "12 reps", rest: Number(cRest) || 60,
       diff: cDiff, tips: cTips.trim(), safety: cSafety.trim(), equip: cEquip.trim() || undefined,
-      videoUrl: cVideo.trim() || undefined,
+      videoUrl: cVideo.trim() || undefined, photoUrl: cPhoto || undefined,
     });
-    setCName(""); setCTips(""); setCSafety(""); setCEquip(""); setCVideo(""); setCSets(3); setCReps("12 reps"); setCRest(60);
+    setCName(""); setCTips(""); setCSafety(""); setCEquip(""); setCVideo(""); setCPhoto(""); setCSets(3); setCReps("12 reps"); setCRest(60);
     setShowCustom(false);
   };
 
@@ -2501,6 +2646,7 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
           <textarea style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12, minHeight: 44, resize: "vertical" }} placeholder="Conseil technique (optionnel)" value={cTips} onChange={e => setCTips(e.target.value)} />
           <textarea style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12, minHeight: 44, resize: "vertical" }} placeholder="Consigne de sécurité (optionnel)" value={cSafety} onChange={e => setCSafety(e.target.value)} />
           <input style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12 }} placeholder="Lien vidéo YouTube (optionnel)" value={cVideo} onChange={e => setCVideo(e.target.value)} />
+          <PhotoUploadField c={c} value={cPhoto} onChange={setCPhoto} />
           <PrimaryBtn c={c} full icon={Plus} disabled={!cName.trim()} onClick={addCustom} style={{ padding: "9px 14px" }}>Ajouter à la séance</PrimaryBtn>
         </div>
       )}
@@ -2550,6 +2696,9 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
               <div style={{ fontSize: 9.5, color: c.muted, marginBottom: 2 }}>Lien vidéo YouTube (optionnel)</div>
               <input value={e.videoUrl || ""} onChange={ev => onUpdate(idx, "videoUrl", ev.target.value)} placeholder="https://youtube.com/watch?v=..."
                 style={{ width: "100%", background: c.surface2, border: `1px solid ${c.border}`, borderRadius: 8, padding: "6px 8px", color: c.text, fontSize: 11.5 }} />
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <PhotoUploadField c={c} value={e.photoUrl || ""} onChange={(url) => onUpdate(idx, "photoUrl", url)} label="Photo de l'exercice (optionnel)" />
             </div>
           </div>
         ))}
@@ -2945,12 +3094,6 @@ export default function App() {
   });
   const saveTimer = useRef(null);
 
-  const history = useMemo(() => {
-    const h = {}; const today = new Date().getDate();
-    for (let d = 1; d <= today; d++) { if ((d + today) % 3 !== 0) h[d] = "done"; else if (d % 7 === 0) h[d] = "rest"; }
-    return h;
-  }, []);
-
   const applyProfile = (profile) => {
     setState({
       name: profile.name, weight: profile.weight, height: profile.height, goal: profile.goal, sportLevel: profile.sportLevel,
@@ -3035,11 +3178,13 @@ export default function App() {
   const handleComplete = () => {
     const key = `${view.program.id || view.program.name}-${view.w}-${view.dayIdx}`;
     if (completedSessions[key]) return;
-    setCompletedSessions(cs => ({ ...cs, [key]: true }));
     const gainedXp = 120;
+    const gainedCalories = 340;
+    const completedAt = new Date().toISOString();
+    setCompletedSessions(cs => ({ ...cs, [key]: { completedAt, minutes: view.session.estTotal, calories: gainedCalories, xp: gainedXp, title: view.session.title } }));
     setState(s => {
       const newXp = s.xp + gainedXp;
-      return { ...s, xp: newXp, level: levelFromXp(newXp), streak: s.streak + 1, sessionsCompleted: s.sessionsCompleted + 1, totalMinutes: s.totalMinutes + view.session.estTotal, calories: s.calories + 340 };
+      return { ...s, xp: newXp, level: levelFromXp(newXp), streak: s.streak + 1, sessionsCompleted: s.sessionsCompleted + 1, totalMinutes: s.totalMinutes + view.session.estTotal, calories: s.calories + gainedCalories };
     });
     setReward({ title: `+${gainedXp} XP gagnés !`, desc: "Séance validée — continuez sur votre lancée 🔥" });
     if (profileId) markSessionDone(profileId).catch(() => {});
@@ -3079,17 +3224,17 @@ export default function App() {
     const key = `${view.program.id || view.program.name}-${view.w}-${view.dayIdx}`;
     content = <SessionDetail key={key} c={c} session={view.session} onComplete={handleComplete} completed={!!completedSessions[key]} />;
   } else if (tab === "home") {
-    content = <Dashboard c={c} state={state} quote={quote} openProgram={openProgram} openSession={openSession} goTab={goTab} />;
+    content = <Dashboard c={c} state={state} quote={quote} openProgram={openProgram} openSession={openSession} goTab={goTab} completedSessions={completedSessions} water={water} />;
   } else if (tab === "programs") {
     content = <ProgramsList c={c} openProgram={openProgram} state={state} />;
   } else if (tab === "calendar") {
-    content = <Calendar c={c} history={history} />;
+    content = <Calendar c={c} completedSessions={completedSessions} />;
   } else if (tab === "messages") {
     content = <div style={{ padding: 18, height: "calc(100vh - 130px)" }}><MessageThread c={c} clientId={profileId} isAdmin={false} peerName="votre coach" /></div>;
   } else if (tab === "nutrition") {
     content = <Nutrition c={c} profile={state} water={water} setWater={setWater} />;
   } else if (tab === "profile") {
-    content = <Profile c={c} state={state} dark={dark} setDark={setDark} accountEmail={accountEmail} />;
+    content = <Profile c={c} state={state} dark={dark} setDark={setDark} accountEmail={accountEmail} profileId={profileId} onWeightLogged={(w) => setState(s => ({ ...s, weight: w }))} />;
   }
 
   return (

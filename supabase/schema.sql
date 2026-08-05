@@ -166,6 +166,45 @@ create policy "messages_update" on public.messages
   for update using (client_id = auth.uid() or public.is_admin(auth.uid()));
 
 -- ============================================================
+-- HISTORIQUE DE POIDS (pour le graphique de progression réel)
+-- ============================================================
+create table if not exists public.weight_logs (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  weight numeric not null,
+  logged_at timestamptz not null default now()
+);
+
+alter table public.weight_logs enable row level security;
+
+drop policy if exists "weight_logs_select" on public.weight_logs;
+create policy "weight_logs_select" on public.weight_logs
+  for select using (profile_id = auth.uid() or public.is_admin(auth.uid()));
+
+drop policy if exists "weight_logs_insert" on public.weight_logs;
+create policy "weight_logs_insert" on public.weight_logs
+  for insert with check (profile_id = auth.uid());
+
+-- ============================================================
+-- PHOTOS DE RÉFÉRENCE PAR EXERCICE (stockage Supabase Storage)
+-- ============================================================
+insert into storage.buckets (id, name, public)
+values ('exercise-photos', 'exercise-photos', true)
+on conflict (id) do nothing;
+
+drop policy if exists "exercise_photos_public_read" on storage.objects;
+create policy "exercise_photos_public_read" on storage.objects
+  for select using (bucket_id = 'exercise-photos');
+
+drop policy if exists "exercise_photos_admin_write" on storage.objects;
+create policy "exercise_photos_admin_write" on storage.objects
+  for insert with check (bucket_id = 'exercise-photos' and public.is_admin(auth.uid()));
+
+drop policy if exists "exercise_photos_admin_delete" on storage.objects;
+create policy "exercise_photos_admin_delete" on storage.objects
+  for delete using (bucket_id = 'exercise-photos' and public.is_admin(auth.uid()));
+
+-- ============================================================
 -- ÉTAPE MANUELLE : créer votre premier compte coach
 -- 1. Inscrivez-vous normalement depuis l'app avec l'email du coach.
 -- 2. Puis exécutez (en remplaçant l'email) :
