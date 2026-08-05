@@ -1206,7 +1206,7 @@ const InstallModal = ({ c, onClose }) => (
    TOP BAR + DRAWER NAV (menu 3 barres à gauche)
 ============================================================ */
 const TopBar = ({ c, title, onBack, dark, setDark, onInstall, onMenu }) => (
-  <div style={{ position: "sticky", top: 0, zIndex: 20, background: c.bg + "ee", backdropFilter: "blur(10px)", borderBottom: `1px solid ${c.border}`, padding: "calc(16px + env(safe-area-inset-top)) 18px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+  <div style={{ position: "sticky", top: 0, zIndex: 20, background: c.bg + "ee", backdropFilter: "blur(10px)", borderBottom: `1px solid ${c.border}`, padding: "calc(16px + max(env(safe-area-inset-top), 24px)) 18px 16px", display: "flex", alignItems: "center", gap: 10 }}>
     {onBack ? (
       <IconBtn icon={ArrowLeft} c={c} onClick={onBack} />
     ) : (
@@ -1238,7 +1238,7 @@ const Drawer = ({ c, open, onClose, tab, setTab, profile, onLogout }) => {
         position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 360, width: 270,
         background: c.surface, borderRight: `1px solid ${c.border}`, display: "flex", flexDirection: "column",
         transform: open ? "translateX(0)" : "translateX(-100%)", transition: "transform .28s cubic-bezier(.16,1,.3,1)",
-        padding: "calc(22px + env(safe-area-inset-top)) 16px 22px", boxShadow: open ? "20px 0 60px rgba(0,0,0,0.3)" : "none"
+        padding: "calc(22px + max(env(safe-area-inset-top), 24px)) 16px 22px", boxShadow: open ? "20px 0 60px rgba(0,0,0,0.3)" : "none"
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24, padding: "0 6px" }}>
           <Logo c={c} size={32} />
@@ -1882,7 +1882,7 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
   const restPct = ((exercise.rest - restRemaining) / exercise.rest) * 100;
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: c.bg, backgroundImage: c.bgGrad, display: "flex", flexDirection: "column", padding: "calc(18px + env(safe-area-inset-top)) 20px calc(18px + env(safe-area-inset-bottom))" }} className="ff-body anim-fadeIn">
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: c.bg, backgroundImage: c.bgGrad, display: "flex", flexDirection: "column", padding: "calc(18px + max(env(safe-area-inset-top), 24px)) 20px calc(18px + env(safe-area-inset-bottom))" }} className="ff-body anim-fadeIn">
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
         <button onClick={onExitFocus} style={{ width: 38, height: 38, borderRadius: 12, border: `1px solid ${c.border}`, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: c.text }}>
           <X size={18} />
@@ -2799,7 +2799,7 @@ const AdminPanel = ({ c, onExit }) => {
 
   return (
     <div className="ff-body scrollbar-none anim-fadeIn" style={{ minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text }}>
-      <div style={{ position: "sticky", top: 0, zIndex: 20, background: c.bg + "ee", backdropFilter: "blur(10px)", borderBottom: `1px solid ${c.border}`, padding: "calc(16px + env(safe-area-inset-top)) 18px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ position: "sticky", top: 0, zIndex: 20, background: c.bg + "ee", backdropFilter: "blur(10px)", borderBottom: `1px solid ${c.border}`, padding: "calc(16px + max(env(safe-area-inset-top), 24px)) 18px 16px", display: "flex", alignItems: "center", gap: 10 }}>
         <Logo c={c} size={30} />
         <span className="ff-display" style={{ fontWeight: 700, fontSize: 16, flex: 1 }}>Espace coach</span>
         <IconBtn icon={RefreshCw} c={c} onClick={load} />
