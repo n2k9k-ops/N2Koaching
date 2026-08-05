@@ -8,7 +8,7 @@ import {
   Building2, HomeIcon, Coffee, UserPlus, LogIn, Eye, EyeOff, Users,
   ClipboardList, ShieldCheck, XCircle, Send, Edit3, Hourglass, RefreshCw,
   UserCog, MailX, Copy, Bookmark, MessageCircle, AlertTriangle, CheckCheck,
-  LayoutDashboard, PlayCircle, Camera
+  LayoutDashboard, PlayCircle, Camera, RotateCcw
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient.js";
 import {
@@ -16,7 +16,7 @@ import {
   listAllProfiles, setProfileStatus, assignLibraryProgram, assignCustomProgram, revokeAccess, restoreAccess,
   listTemplates, saveTemplate, deleteTemplate,
   listMessages, sendMessage, markMessagesRead,
-  logWeight, listWeightLogs, uploadExercisePhoto,
+  logWeight, listWeightLogs, uploadExercisePhoto, updateStreakFreezeUsedAt,
   logExerciseSet, getLastExercisePerformance, getSessionExerciseLogs,
   listCustomExercises, createCustomExercise,
   sendPasswordReset, updatePassword,
@@ -670,6 +670,39 @@ function computeWeeklyPoints(completedSessions) {
   });
   const daysLeft = 7 - offset - 1;
   return { xp, sessions, calories, minutes, daysLeft: Math.max(0, daysLeft) };
+}
+
+/** Calcule une vraie série de jours consécutifs (pas juste un compteur qui monte
+ *  indéfiniment) à partir des dates réelles de séances loggées, avec un "gel"
+ *  gratuit par mois calendaire qui comble un jour manqué sans casser la série. */
+function computeRealStreak(completedSessions, freezeUsedAt) {
+  const dates = new Set();
+  Object.values(completedSessions).forEach(entry => {
+    if (entry && entry.completedAt) dates.add(new Date(entry.completedAt).toDateString());
+  });
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const freezeAvailable = !freezeUsedAt ||
+    (new Date(freezeUsedAt).getMonth() !== today.getMonth() || new Date(freezeUsedAt).getFullYear() !== today.getFullYear());
+
+  let streak = 0;
+  let usedFreeze = false;
+  const cursor = new Date(today);
+  let guard = 0;
+  while (guard < 400) {
+    guard++;
+    const isToday = cursor.getTime() === today.getTime();
+    if (dates.has(cursor.toDateString())) {
+      streak++;
+    } else if (isToday) {
+      // La journée n'est pas terminée, on ne casse pas la série pour ça.
+    } else if (freezeAvailable && !usedFreeze) {
+      usedFreeze = true; // Gel mensuel consommé pour combler ce trou.
+    } else {
+      break;
+    }
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return { streak, freezeAvailable, usedFreeze };
 }
 
 function getSupplementSuggestions(goal) {
@@ -1650,7 +1683,7 @@ const Drawer = ({ c, open, onClose, tab, setTab, profile, onLogout }) => {
    DASHBOARD
 ============================================================ */
 const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completedSessions, water }) => {
-  const { xp, level, streak, sessionsCompleted, totalMinutes, calories, name } = state;
+  const { xp, level, sessionsCompleted, totalMinutes, calories, name } = state;
   const curLevelXp = xpForLevel(level - 1);
   const nextLevelXp = xpForLevel(level);
   const pct = ((xp - curLevelXp) / (nextLevelXp - curLevelXp)) * 100;
@@ -1659,6 +1692,7 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completed
   const dailyStats = computeDailyStats(completedSessions);
   const weeklyActivity = computeWeeklyActivity(completedSessions);
   const weeklyPoints = computeWeeklyPoints(completedSessions);
+  const streakInfo = computeRealStreak(completedSessions, state.streakFreezeUsedAt);
   const featured = [PROGRAMS.find(p => p.id === "ppl"), PROGRAMS.find(p => p.id === "upper-lower"), PROGRAMS.find(p => p.id === "maison")];
 
   return (
@@ -1676,7 +1710,7 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completed
             <div className="ff-display" style={{ color: "#fff", fontWeight: 700, fontSize: 19 }}>{name} 👋</div>
             <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
               <span style={{ background: "rgba(255,255,255,0.18)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, display: "flex", alignItems: "center", gap: 4 }}>
-                <Flame size={12} /> {streak} jours
+                <Flame size={12} /> {streakInfo.streak} jours{streakInfo.freezeAvailable ? " · 🧊" : ""}
               </span>
               <span style={{ background: "rgba(255,255,255,0.18)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999 }}>
                 {xp.toLocaleString("fr-FR")} XP
@@ -2312,7 +2346,21 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
 
   useEffect(() => {
     if (phase !== "resting") return;
-    if (restRemaining <= 0) { setPhase("input"); return; }
+    if (restRemaining <= 0) {
+      setPhase("input");
+      try { if (navigator.vibrate) navigator.vibrate([180, 80, 180]); } catch (e) { /* API indisponible (iOS Safari notamment) */ }
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.16, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        osc.start(); osc.stop(ctx.currentTime + 0.35);
+      } catch (e) { /* audio indisponible */ }
+      return;
+    }
     const t = setTimeout(() => setRestRemaining(r => r - 1), 1000);
     return () => clearTimeout(t);
   }, [phase, restRemaining]);
@@ -2335,6 +2383,16 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
   };
 
   const skipRest = () => setPhase("input");
+
+  const undoLastSet = () => {
+    const prevIdx = activeIdx - 1;
+    if (prevIdx < 0) return;
+    const prevSet = sets[prevIdx];
+    setSets(s => s.map((row, i) => i === prevIdx ? { weight: "", reps: "", done: false } : row));
+    setActiveIdx(prevIdx);
+    setWeight(String(prevSet.weight ?? "")); setReps(String(prevSet.reps ?? ""));
+    setPhase("input");
+  };
 
   const restPct = ((exercise.rest - restRemaining) / exercise.rest) * 100;
   const lastTimeForSet = lastTime && lastTime[activeIdx];
@@ -2428,6 +2486,9 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
             </div>
             <div style={{ fontSize: 12.5, color: c.muted, marginTop: 6, marginBottom: 20 }}>Série {activeIdx + 1} débloquée automatiquement</div>
             <SecondaryBtn c={c} full icon={ChevronRight} onClick={skipRest}>Passer le repos</SecondaryBtn>
+            <button onClick={undoLastSet} style={{ background: "none", border: "none", color: c.muted, fontSize: 11.5, cursor: "pointer", marginTop: 12, display: "flex", alignItems: "center", gap: 5, justifyContent: "center", width: "100%" }}>
+              <RotateCcw size={12} /> Annuler la dernière série
+            </button>
           </div>
         )}
 
@@ -2838,7 +2899,7 @@ const SubscriptionSection = ({ c, status }) => {
 };
 
 
-const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLogged, onAvatarChanged }) => {
+const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLogged, onAvatarChanged, completedSessions }) => {
   const { name, weight, height, goal, level, xp, sportLevel, avatarUrl } = state;
   const [logs, setLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(true);
@@ -2883,10 +2944,11 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
     if (avatarInputRef.current) avatarInputRef.current.value = "";
   };
 
+  const streakInfo = computeRealStreak(completedSessions || {}, state.streakFreezeUsedAt);
   const badgesUnlocked = BADGES.map(b => ({
     ...b,
     unlocked: (b.type === "sessions" && state.sessionsCompleted >= b.target) ||
-      (b.type === "streak" && state.streak >= b.target) ||
+      (b.type === "streak" && streakInfo.streak >= b.target) ||
       (b.type === "xp" && xp >= b.target)
   }));
 
@@ -2967,6 +3029,16 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
             </LineChart>
           </ResponsiveContainer>
         )}
+      </Card>
+
+      <Card c={c} style={{ marginBottom: 18, display: "flex", alignItems: "center", gap: 12, padding: 14 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: "rgba(255,159,10,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Flame size={19} color={c.warning} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>{streakInfo.streak} jour{streakInfo.streak > 1 ? "s" : ""} de série</div>
+          <div style={{ fontSize: 11, color: c.muted }}>{streakInfo.freezeAvailable ? "🧊 1 gel disponible ce mois-ci" : "Gel déjà utilisé ce mois-ci"}</div>
+        </div>
       </Card>
 
       <SectionTitle c={c}>Badges & récompenses</SectionTitle>
@@ -3425,6 +3497,7 @@ const OverviewTab = ({ c, clients }) => {
         {sorted.map(a => {
           const days = a.lastSessionAt ? Math.floor((Date.now() - new Date(a.lastSessionAt).getTime()) / 86400000) : null;
           const dropping = days === null || days >= 5;
+          const realStreak = computeRealStreak(a.completedSessions || {}, a.streakFreezeUsedAt).streak;
           return (
             <Card c={c} key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: 14 }}>
               <div style={{ width: 34, height: 34, borderRadius: "50%", background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
@@ -3432,7 +3505,7 @@ const OverviewTab = ({ c, clients }) => {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{a.name}</div>
-                <div style={{ fontSize: 11, color: c.muted }}>{a.streak} jours de série · {a.sessionsCompleted} séances au total</div>
+                <div style={{ fontSize: 11, color: c.muted }}>{realStreak} jours de série · {a.sessionsCompleted} séances au total</div>
               </div>
               <Pill c={c} tone={dropping ? "danger" : "success"}>{fmtRelative(a.lastSessionAt)}</Pill>
             </Card>
@@ -3592,7 +3665,7 @@ export default function App() {
     name: "Athlète", weight: 75, height: 175, goal: "Perte de poids", sportLevel: "Débutant",
     xp: 0, level: 1, streak: 0, sessionsCompleted: 0, totalMinutes: 0, calories: 0,
     status: "pending", assignedProgramId: null, customProgram: null,
-    age: null, gender: null, injuries: "", avatarUrl: null,
+    age: null, gender: null, injuries: "", avatarUrl: null, streakFreezeUsedAt: null,
   });
   const saveTimer = useRef(null);
 
@@ -3609,6 +3682,7 @@ export default function App() {
       avatarUrl: profile.avatarUrl || null,
       subscriptionStatus: profile.subscriptionStatus || "inactive",
       revokeReason: profile.revokeReason || "",
+      streakFreezeUsedAt: profile.streakFreezeUsedAt || null,
     });
     setCompletedSessions(profile.completedSessions || {});
     setWater(profile.water ?? 3);
@@ -3676,6 +3750,18 @@ export default function App() {
     }, 700);
     return () => clearTimeout(saveTimer.current);
   }, [state, completedSessions, water, dark, profileId, screen]);
+
+  // Détecte quand la série a été "sauvée" par le gel mensuel et enregistre
+  // la date de consommation pour ne pas pouvoir en reconsommer un ce mois-ci.
+  useEffect(() => {
+    if (!profileId || screen !== "app") return;
+    const { usedFreeze, freezeAvailable } = computeRealStreak(completedSessions, state.streakFreezeUsedAt);
+    if (usedFreeze && freezeAvailable) {
+      const now = new Date().toISOString();
+      setState(s => ({ ...s, streakFreezeUsedAt: now }));
+      updateStreakFreezeUsedAt(profileId, now).catch(() => {});
+    }
+  }, [completedSessions, profileId, screen]);
 
   const openProgram = (p) => setView({ screen: "programDetail", program: p });
   const openSession = (program, w, dayIdx) => setView({ screen: "session", program, w, dayIdx, session: buildDaySession(program, w, dayIdx) });
@@ -3757,7 +3843,7 @@ export default function App() {
   } else if (tab === "nutrition") {
     content = <Nutrition c={c} profile={state} water={water} setWater={setWater} />;
   } else if (tab === "profile") {
-    content = <Profile c={c} state={state} dark={dark} setDark={setDark} accountEmail={accountEmail} profileId={profileId} onWeightLogged={(w) => setState(s => ({ ...s, weight: w }))} onAvatarChanged={(url) => setState(s => ({ ...s, avatarUrl: url }))} />;
+    content = <Profile c={c} state={state} dark={dark} setDark={setDark} accountEmail={accountEmail} profileId={profileId} completedSessions={completedSessions} onWeightLogged={(w) => setState(s => ({ ...s, weight: w }))} onAvatarChanged={(url) => setState(s => ({ ...s, avatarUrl: url }))} />;
   }
 
   return (

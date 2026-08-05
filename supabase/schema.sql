@@ -37,6 +37,7 @@ create table if not exists public.profiles (
   stripe_customer_id text,
   subscription_id text,
   subscription_status text not null default 'inactive',
+  streak_freeze_used_at timestamptz,
   created_at timestamptz not null default now()
 );
 
@@ -45,6 +46,7 @@ create table if not exists public.profiles (
 alter table public.profiles add column if not exists last_session_at timestamptz;
 alter table public.profiles add column if not exists program_start_at timestamptz default now();
 alter table public.profiles add column if not exists onboarded boolean not null default false;
+alter table public.profiles add column if not exists streak_freeze_used_at timestamptz;
 alter table public.profiles add column if not exists revoke_reason text;
 alter table public.profiles drop constraint if exists profiles_status_check;
 alter table public.profiles add constraint profiles_status_check check (status in ('pending', 'approved', 'rejected', 'revoked'));
@@ -271,8 +273,16 @@ drop policy if exists "exercise_logs_insert" on public.exercise_logs;
 create policy "exercise_logs_insert" on public.exercise_logs
   for insert with check (profile_id = auth.uid());
 
+drop policy if exists "exercise_logs_update" on public.exercise_logs;
+create policy "exercise_logs_update" on public.exercise_logs
+  for update using (profile_id = auth.uid());
+
 create index if not exists exercise_logs_name_idx on public.exercise_logs (profile_id, exercise_name, logged_at desc);
 create index if not exists exercise_logs_session_idx on public.exercise_logs (profile_id, session_key);
+
+alter table public.exercise_logs drop constraint if exists exercise_logs_unique;
+alter table public.exercise_logs add constraint exercise_logs_unique
+  unique (profile_id, session_key, exercise_name, set_index);
 
 -- ============================================================
 -- EXERCICES PERSONNALISÉS DU COACH (rejoignent la bibliothèque partagée)

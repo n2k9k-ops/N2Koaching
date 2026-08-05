@@ -33,6 +33,7 @@ function rowToProfile(row) {
     injuries: row.injuries,
     avatarUrl: row.avatar_url,
     subscriptionStatus: row.subscription_status,
+    streakFreezeUsedAt: row.streak_freeze_used_at,
   };
 }
 
@@ -229,10 +230,10 @@ export async function deleteTemplate(id) {
 /* ---------------- Historique des séries (perf par exercice) ---------------- */
 
 export async function logExerciseSet(profileId, sessionKey, exerciseName, setIndex, weight, reps) {
-  const { error } = await supabase.from("exercise_logs").insert({
+  const { error } = await supabase.from("exercise_logs").upsert({
     profile_id: profileId, session_key: sessionKey, exercise_name: exerciseName,
-    set_index: setIndex, weight, reps,
-  });
+    set_index: setIndex, weight, reps, logged_at: new Date().toISOString(),
+  }, { onConflict: "profile_id,session_key,exercise_name,set_index" });
   if (error) throw error;
 }
 
@@ -270,6 +271,11 @@ export async function getSessionExerciseLogs(profileId, sessionKey) {
     grouped[row.exercise_name].push({ weight: row.weight, reps: row.reps, setIndex: row.set_index });
   });
   return grouped;
+}
+
+export async function updateStreakFreezeUsedAt(id, isoDate) {
+  const { error } = await supabase.from("profiles").update({ streak_freeze_used_at: isoDate }).eq("id", id);
+  if (error) throw error;
 }
 
 /* ---------------- Historique de poids ---------------- */

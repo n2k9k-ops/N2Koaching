@@ -235,3 +235,15 @@ Sur la fiche d'un client actif, un lien discret **"Révoquer l'accès"** ouvre u
 - Le compte reste visible dans l'onglet Clients avec un badge rouge "Révoqué", et un bouton **"Réactiver l'accès"** permet d'annuler la révocation à tout moment.
 
 **Sur la suppression complète (pas seulement la révocation)** : je n'ai pas ajouté de bouton "supprimer" qui efface totalement le compte et ses données. Le faire proprement demanderait une Edge Function supplémentaire (comme pour Stripe) à déployer via la CLI Supabase — je n'ai pas voulu te l'imposer sans demander vu ta réaction sur Stripe. Si tu veux supprimer un compte définitivement dès maintenant, sans code supplémentaire : Supabase Dashboard → **Authentication → Users** → trouve l'utilisateur → **Delete user**. Ça supprime le compte et, grâce à la référence `on delete cascade`, toutes ses données associées (profil, séries loggées, messages, etc.) avec lui.
+
+## Son/vibration en fin de repos, annuler une série, streak avec gel mensuel, logo
+
+⚠️ Relance `supabase/schema.sql` en entier (ajoute `streak_freeze_used_at`, une contrainte d'unicité sur `exercise_logs` pour permettre l'annulation propre, et la policy UPDATE correspondante).
+
+**Son + vibration** : à la fin d'un repos, l'app fait vibrer le téléphone et joue un petit bip synthétisé (pas de fichier audio externe). La vibration ne fonctionne que sur Android/Chrome — Safari iOS ne supporte pas l'API Vibration, c'est une limite de la plateforme, pas du code.
+
+**Annuler la dernière série** : pendant le décompte de repos, un lien "Annuler la dernière série" permet de revenir en arrière et corriger une saisie. Limité à la série qui vient d'être validée (pas d'annulation en cascade sur plusieurs séries).
+
+**Streak avec gel mensuel** : jusqu'ici, le compteur de série augmentait bêtement à chaque séance sans jamais vérifier les jours réels — un "gel" n'aurait donc jamais servi à rien. La série est maintenant calculée à partir des vraies dates de séances, avec un **gel gratuit par mois** qui comble automatiquement un jour manqué sans casser la série. Visible dans le Profil et sur le tableau de bord (icône 🧊 quand un gel est disponible).
+
+**Logo** : régénéré en plus haute qualité — police géométrique premium (TeX Gyre Adventor, dans l'esprit Futura), rendu en survolume (4x) puis réduit pour un anti-crénelage net, dégradé diagonal plus fidèle au thème de l'app, reflet subtil et ombre portée légère pour la profondeur.
