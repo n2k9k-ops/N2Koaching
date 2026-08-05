@@ -18,7 +18,7 @@ import {
   listMessages, sendMessage, markMessagesRead,
   logWeight, listWeightLogs, uploadExercisePhoto, updateStreakFreezeUsedAt,
   uploadProgressPhoto, createProgressPhoto, listProgressPhotos, replyToProgressPhoto,
-  approveWithDuration, renewAccess,
+  approveWithDuration, renewAccess, submitSessionFeedback, listSessionFeedback, broadcastMessage,
   logExerciseSet, getLastExercisePerformance, getSessionExerciseLogs,
   listCustomExercises, createCustomExercise,
   sendPasswordReset, updatePassword,
@@ -2307,6 +2307,74 @@ const SessionPerformanceView = ({ c, session, profileId, sessionKey }) => {
   );
 };
 
+const ScaleSlider = ({ c, value, setValue, leftLabel, rightLabel, gradFrom, gradTo }) => (
+  <div>
+    <div style={{ textAlign: "center", marginBottom: 10 }}>
+      <span className="ff-mono" style={{ fontSize: 40, fontWeight: 700, color: c.text }}>{value}</span>
+      <span style={{ fontSize: 14, color: c.muted }}>/10</span>
+    </div>
+    <input type="range" min={1} max={10} value={value} onChange={e => setValue(Number(e.target.value))}
+      className="premium-slider" style={{ width: "100%", background: `linear-gradient(90deg, ${gradFrom}, ${gradTo})` }} />
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: c.muted, marginTop: 6 }}>
+      <span>{leftLabel}</span><span>{rightLabel}</span>
+    </div>
+  </div>
+);
+
+const SessionFeedbackForm = ({ c, onSubmit, onSkip }) => {
+  const [rpe, setRpe] = useState(6);
+  const [energy, setEnergy] = useState(6);
+  const [soreness, setSoreness] = useState("Légères");
+  const [comment, setComment] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    setSaving(true);
+    await onSubmit({ rpe, energy, soreness, comment: comment.trim() });
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 800, background: c.bg, backgroundImage: c.bgGrad, overflowY: "auto", display: "flex", alignItems: "center" }} className="ff-body anim-fadeIn scrollbar-none">
+      <div style={{ maxWidth: 400, margin: "0 auto", width: "100%", padding: "calc(24px + max(env(safe-area-inset-top), 24px)) 24px calc(24px + env(safe-area-inset-bottom))" }}>
+        <div style={{ textAlign: "center", marginBottom: 26 }}>
+          <div style={{ width: 60, height: 60, borderRadius: 18, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+            <CheckCircle2 size={28} color="#fff" />
+          </div>
+          <h1 className="ff-display" style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Séance terminée !</h1>
+          <p style={{ color: c.muted, fontSize: 12.5 }}>Quelques infos rapides pour votre coach — 20 secondes.</p>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12, textAlign: "center" }}>À quel point c'était difficile ?</div>
+            <ScaleSlider c={c} value={rpe} setValue={setRpe} leftLabel="Très facile" rightLabel="Épuisant" gradFrom="#34C759" gradTo="#FF3B30" />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12, textAlign: "center" }}>Votre niveau d'énergie après ?</div>
+            <ScaleSlider c={c} value={energy} setValue={setEnergy} leftLabel="Vidé" rightLabel="Plein d'énergie" gradFrom="#FF3B30" gradTo="#34C759" />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, textAlign: "center" }}>Courbatures attendues ?</div>
+            <CardPicker c={c} value={soreness} setValue={setSoreness} columns={2} options={[
+              { value: "Aucune", label: "Aucune" }, { value: "Légères", label: "Légères" },
+              { value: "Modérées", label: "Modérées" }, { value: "Fortes", label: "Fortes" },
+            ]} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11.5, color: c.muted, marginBottom: 8 }}>Un commentaire pour votre coach ? (optionnel)</div>
+            <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder="Ex : douleur légère à l'épaule droite sur le développé..."
+              style={{ ...inputStyle(c), minHeight: 70, resize: "vertical" }} />
+          </div>
+
+          <PrimaryBtn c={c} full icon={Check} disabled={saving} onClick={submit}>{saving ? "Envoi..." : "Envoyer à mon coach"}</PrimaryBtn>
+          <button onClick={onSkip} style={{ background: "none", border: "none", color: c.muted, fontSize: 12, cursor: "pointer" }}>Passer cette fois</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const RestDayScreen = ({ c }) => (
   <div style={{ padding: "18px 18px 30px", textAlign: "center" }} className="anim-fadeIn">
     <div style={{ width: 72, height: 72, borderRadius: 20, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", margin: "40px auto 20px" }}>
@@ -3498,6 +3566,57 @@ function fmtRelative(dateStr) {
   return `Il y a ${days} j`;
 }
 
+const ClientFeedbackPanel = ({ c, clientId }) => {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    listSessionFeedback(clientId).then(setEntries).catch(() => {}).finally(() => setLoading(false));
+  }, [clientId]);
+
+  if (loading) return <div style={{ textAlign: "center", padding: 20, color: c.muted, fontSize: 12 }}>Chargement...</div>;
+  if (entries.length === 0) return <div style={{ textAlign: "center", padding: 20, color: c.muted, fontSize: 12 }}>Aucun ressenti envoyé par ce client pour l'instant.</div>;
+
+  const recent = entries.slice(0, 5);
+  const avgRpe = (recent.reduce((a, e) => a + e.rpe, 0) / recent.length).toFixed(1);
+  const avgEnergy = (recent.reduce((a, e) => a + e.energy, 0) / recent.length).toFixed(1);
+  const highFatigue = avgRpe >= 7.5 && avgEnergy <= 4.5;
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+        <div style={{ background: c.surface, borderRadius: 10, padding: 10, textAlign: "center" }}>
+          <div className="ff-mono" style={{ fontWeight: 700, fontSize: 18 }}>{avgRpe}</div>
+          <div style={{ fontSize: 9.5, color: c.muted }}>RPE moyen (5 dern.)</div>
+        </div>
+        <div style={{ background: c.surface, borderRadius: 10, padding: 10, textAlign: "center" }}>
+          <div className="ff-mono" style={{ fontWeight: 700, fontSize: 18 }}>{avgEnergy}</div>
+          <div style={{ fontSize: 9.5, color: c.muted }}>Énergie moyenne</div>
+        </div>
+      </div>
+      {highFatigue && (
+        <div style={{ display: "flex", gap: 8, background: "rgba(255,159,10,0.12)", borderRadius: 10, padding: 10, marginBottom: 10 }}>
+          <AlertTriangle size={14} color={c.warning} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ fontSize: 11.5, color: c.text }}>Signes de fatigue élevée sur les dernières séances — RPE haut et énergie basse.</span>
+        </div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 300, overflowY: "auto" }}>
+        {entries.map(e => (
+          <div key={e.id} style={{ background: c.surface, borderRadius: 10, padding: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ fontSize: 10.5, color: c.muted }}>{new Date(e.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })}</span>
+              <span className="ff-mono" style={{ fontSize: 11, color: c.text }}>RPE {e.rpe}/10 · Énergie {e.energy}/10</span>
+            </div>
+            {e.soreness && <div style={{ fontSize: 11, color: c.muted }}>Courbatures : {e.soreness}</div>}
+            {e.comment && <p style={{ fontSize: 12, margin: "6px 0 0" }}>{e.comment}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const ClientPhotosPanel = ({ c, clientId }) => {
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -3560,6 +3679,7 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
   const assigned = resolveAssignedProgram(client);
   const [showChat, setShowChat] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [showRevokeForm, setShowRevokeForm] = useState(false);
   const [revokeReasonText, setRevokeReasonText] = useState("");
   const [duration, setDuration] = useState(30);
@@ -3638,14 +3758,15 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
             </button>
           )}
 
-          <div style={{ display: "flex", gap: 8, marginBottom: (editing || showChat || showPhotos) ? 12 : 8 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: (editing || showChat || showPhotos || showFeedback) ? 12 : 8 }}>
             <select style={{ ...inputStyle(c), flex: 1, padding: "9px 10px", fontSize: 12.5 }} value={client.assignedProgramId || ""} onChange={e => onAssignLibrary(client, e.target.value)}>
               <option value="">— Assigner depuis la bibliothèque —</option>
               {PROGRAMS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
-            <SecondaryBtn c={c} icon={Edit3} onClick={() => { onOpenBuilder(client); setShowChat(false); setShowPhotos(false); }}>{editing ? "Fermer" : "Sur-mesure"}</SecondaryBtn>
-            <SecondaryBtn c={c} icon={MessageCircle} onClick={() => { setShowChat(!showChat); setShowPhotos(false); if (editing) onCloseBuilder(); }} />
-            <SecondaryBtn c={c} icon={Camera} onClick={() => { setShowPhotos(!showPhotos); setShowChat(false); if (editing) onCloseBuilder(); }} />
+            <SecondaryBtn c={c} icon={Edit3} onClick={() => { onOpenBuilder(client); setShowChat(false); setShowPhotos(false); setShowFeedback(false); }}>{editing ? "Fermer" : "Sur-mesure"}</SecondaryBtn>
+            <SecondaryBtn c={c} icon={MessageCircle} onClick={() => { setShowChat(!showChat); setShowPhotos(false); setShowFeedback(false); if (editing) onCloseBuilder(); }} />
+            <SecondaryBtn c={c} icon={Camera} onClick={() => { setShowPhotos(!showPhotos); setShowChat(false); setShowFeedback(false); if (editing) onCloseBuilder(); }} />
+            <SecondaryBtn c={c} icon={Activity} onClick={() => { setShowFeedback(!showFeedback); setShowChat(false); setShowPhotos(false); if (editing) onCloseBuilder(); }} />
           </div>
           {editing && <ProgramBuilder c={c} client={client} onCancel={onCloseBuilder} onSave={(prog) => onSaveCustom(client, prog)}
             templates={templates} otherClients={otherClients} onSaveTemplate={onSaveTemplate} />}
@@ -3657,6 +3778,11 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
           {showPhotos && (
             <div style={{ background: c.surface2, borderRadius: 14, padding: 12, marginBottom: 8 }}>
               <ClientPhotosPanel c={c} clientId={client.id} />
+            </div>
+          )}
+          {showFeedback && (
+            <div style={{ background: c.surface2, borderRadius: 14, padding: 12, marginBottom: 8 }}>
+              <ClientFeedbackPanel c={c} clientId={client.id} />
             </div>
           )}
 
@@ -3737,6 +3863,10 @@ const AdminPanel = ({ c, onExit }) => {
   const [editingId, setEditingId] = useState(null);
   const [tabAdmin, setTabAdmin] = useState("pending");
   const [err, setErr] = useState("");
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  const [broadcastText, setBroadcastText] = useState("");
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastDone, setBroadcastDone] = useState(0);
 
   const load = async () => {
     setLoading(true); setErr("");
@@ -3787,6 +3917,18 @@ const AdminPanel = ({ c, onExit }) => {
   const clients = accounts.filter(a => a.status !== "pending");
   const approvedClients = accounts.filter(a => a.status === "approved");
 
+  const sendBroadcast = async () => {
+    if (!broadcastText.trim() || approvedClients.length === 0) return;
+    setBroadcasting(true);
+    try {
+      await broadcastMessage(approvedClients.map(a => a.id), broadcastText.trim());
+      setBroadcastDone(approvedClients.length);
+      setBroadcastText("");
+      setTimeout(() => { setShowBroadcast(false); setBroadcastDone(0); }, 1800);
+    } catch (e) { setErr(e.message); }
+    setBroadcasting(false);
+  };
+
   return (
     <div className="ff-body scrollbar-none anim-fadeIn" style={{ minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text }}>
       <div style={{ position: "sticky", top: 0, zIndex: 20, background: c.bg + "ee", backdropFilter: "blur(10px)", borderBottom: `1px solid ${c.border}`, padding: "calc(16px + max(env(safe-area-inset-top), 24px)) 18px 16px", display: "flex", alignItems: "center", gap: 10 }}>
@@ -3797,6 +3939,35 @@ const AdminPanel = ({ c, onExit }) => {
 
       <div style={{ padding: 18 }}>
         <SecondaryBtn c={c} full icon={LogOut} onClick={onExit} style={{ marginBottom: 16, color: c.danger }}>Déconnexion</SecondaryBtn>
+
+        {showBroadcast ? (
+          <Card c={c} style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <Send size={15} color={c.electric2} />
+              <span style={{ fontSize: 13, fontWeight: 700 }}>Message groupé — {approvedClients.length} client{approvedClients.length > 1 ? "s" : ""} actif{approvedClients.length > 1 ? "s" : ""}</span>
+            </div>
+            {broadcastDone > 0 ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: c.success, fontSize: 13, padding: "8px 0" }}>
+                <CheckCircle2 size={16} /> Envoyé à {broadcastDone} client{broadcastDone > 1 ? "s" : ""} !
+              </div>
+            ) : (
+              <>
+                <textarea value={broadcastText} onChange={e => setBroadcastText(e.target.value)} placeholder="Ex : La salle sera fermée ce week-end, à lundi !"
+                  style={{ ...inputStyle(c), minHeight: 80, resize: "vertical", marginBottom: 10 }} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <SecondaryBtn c={c} full onClick={() => { setShowBroadcast(false); setBroadcastText(""); }}>Annuler</SecondaryBtn>
+                  <PrimaryBtn c={c} full icon={Send} disabled={!broadcastText.trim() || broadcasting || approvedClients.length === 0} onClick={sendBroadcast}>
+                    {broadcasting ? "Envoi..." : "Envoyer à tous"}
+                  </PrimaryBtn>
+                </div>
+              </>
+            )}
+          </Card>
+        ) : (
+          <SecondaryBtn c={c} full icon={Send} onClick={() => setShowBroadcast(true)} style={{ marginBottom: 16 }}>
+            Message groupé à tous les clients
+          </SecondaryBtn>
+        )}
         {err && <div style={{ fontSize: 12, color: c.danger, background: "rgba(255,59,48,0.1)", padding: "10px 12px", borderRadius: 10, marginBottom: 14 }}>{err}</div>}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
           <Card c={c}><Users size={16} color={c.electric2} style={{ marginBottom: 8 }} /><div className="ff-mono" style={{ fontWeight: 700, fontSize: 20 }}>{clients.length}</div><div style={{ fontSize: 11, color: c.muted }}>Clients actifs</div></Card>
@@ -3877,6 +4048,7 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showInstall, setShowInstall] = useState(false);
   const [reward, setReward] = useState(null);
+  const [feedbackPrompt, setFeedbackPrompt] = useState(null);
   const [quote] = useState(QUOTES[Math.floor(Math.random() * QUOTES.length)]);
   const [water, setWater] = useState(3);
   const [completedSessions, setCompletedSessions] = useState({});
@@ -4014,6 +4186,7 @@ export default function App() {
     });
     setReward({ title: `+${gainedXp} XP gagnés !`, desc: "Séance validée — continuez sur votre lancée 🔥" });
     if (profileId) markSessionDone(profileId).catch(() => {});
+    setFeedbackPrompt({ sessionKey: key });
   };
 
   if (screen === "boot") {
@@ -4084,6 +4257,17 @@ export default function App() {
       <Drawer c={c} open={drawerOpen} onClose={() => setDrawerOpen(false)} tab={tab} setTab={goTab} profile={state} onLogout={logout} />
       {showInstall && <InstallModal c={c} onClose={() => setShowInstall(false)} />}
       {reward && <RewardToast reward={reward} c={c} onClose={() => setReward(null)} />}
+      {feedbackPrompt && (
+        <SessionFeedbackForm c={c}
+          onSubmit={async (data) => {
+            if (profileId) {
+              try { await submitSessionFeedback(profileId, feedbackPrompt.sessionKey, data); } catch (e) { /* réessaiera pas, non bloquant */ }
+            }
+            setFeedbackPrompt(null);
+          }}
+          onSkip={() => setFeedbackPrompt(null)}
+        />
+      )}
     </>
   );
 }

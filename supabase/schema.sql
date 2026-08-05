@@ -356,6 +356,30 @@ create policy "progress_photos_bucket_write" on storage.objects
   for insert with check (bucket_id = 'progress-photos' and (storage.foldername(name))[1] = auth.uid()::text);
 
 -- ============================================================
+-- RESSENTI POST-SÉANCE (RPE + énergie + courbatures + commentaire)
+-- ============================================================
+create table if not exists public.session_feedback (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  session_key text not null,
+  rpe integer not null check (rpe between 1 and 10),
+  energy integer not null check (energy between 1 and 10),
+  soreness text,
+  comment text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.session_feedback enable row level security;
+
+drop policy if exists "session_feedback_select" on public.session_feedback;
+create policy "session_feedback_select" on public.session_feedback
+  for select using (profile_id = auth.uid() or public.is_admin(auth.uid()));
+
+drop policy if exists "session_feedback_insert" on public.session_feedback;
+create policy "session_feedback_insert" on public.session_feedback
+  for insert with check (profile_id = auth.uid());
+
+-- ============================================================
 -- ÉTAPE MANUELLE : créer votre premier compte coach
 -- 1. Inscrivez-vous normalement depuis l'app avec l'email du coach.
 -- 2. Puis exécutez (en remplaçant l'email) :

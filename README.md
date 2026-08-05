@@ -261,3 +261,11 @@ Sur la fiche d'un client actif, un lien discret **"Révoquer l'accès"** ouvre u
 ⚠️ **Nuance honnête sur "automatique"** : il n'y a pas de tâche planifiée côté serveur qui coupe l'accès à la seconde précise de l'expiration (ça demanderait une Edge Function + un cron, comme pour Stripe). La vérification se fait à chaque chargement de l'app — dans la pratique, l'accès est coupé au prochain rechargement après l'expiration, ce qui couvre l'immense majorité des cas réels.
 
 **Fix : décompte de repos mal centré** — un bug que j'avais moi-même introduit en ajoutant les boutons "passer"/"annuler" plus tôt. Corrigé.
+
+## Message groupé, ressenti post-séance détaillé
+
+⚠️ Relance `supabase/schema.sql` en entier (ajoute la table `session_feedback`).
+
+**Message groupé** : dans l'espace coach, bouton "Message groupé à tous les clients" — un seul message envoyé d'un coup dans le fil de chaque client actif, au lieu de le retaper dans chaque conversation.
+
+**Ressenti post-séance** : après chaque séance terminée, un écran demande — difficulté ressentie (1 à 10, slider vert→rouge), niveau d'énergie après l'effort (1 à 10), courbatures attendues (Aucune/Légères/Modérées/Fortes), et un commentaire libre optionnel. Skippable si le client ne veut pas répondre. Côté coach, un bouton 📊 sur chaque client affiche l'historique complet, la moyenne des 5 dernières séances, et une alerte automatique si le RPE moyen est élevé **et** l'énergie moyenne basse en même temps — signe de fatigue qui s'installe.

@@ -346,6 +346,36 @@ export async function updateStreakFreezeUsedAt(id, isoDate) {
   if (error) throw error;
 }
 
+/* ---------------- Ressenti post-séance ---------------- */
+
+export async function submitSessionFeedback(profileId, sessionKey, { rpe, energy, soreness, comment }) {
+  const { error } = await supabase.from("session_feedback").insert({
+    profile_id: profileId, session_key: sessionKey, rpe, energy, soreness: soreness || null, comment: comment || null,
+  });
+  if (error) throw error;
+}
+
+export async function listSessionFeedback(profileId) {
+  const { data, error } = await supabase
+    .from("session_feedback")
+    .select("*")
+    .eq("profile_id", profileId)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (error) throw error;
+  return data.map(r => ({ id: r.id, rpe: r.rpe, energy: r.energy, soreness: r.soreness, comment: r.comment, createdAt: r.created_at }));
+}
+
+/* ---------------- Message groupé (coach vers tous ses clients) ---------------- */
+
+export async function broadcastMessage(clientIds, content) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Non connecté.");
+  const rows = clientIds.map(id => ({ client_id: id, sender_id: session.user.id, sender_is_admin: true, content }));
+  const { error } = await supabase.from("messages").insert(rows);
+  if (error) throw error;
+}
+
 /* ---------------- Historique de poids ---------------- */
 
 export async function logWeight(profileId, weight) {
