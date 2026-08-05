@@ -8,7 +8,7 @@ import {
   Building2, HomeIcon, Coffee, UserPlus, LogIn, Eye, EyeOff, Users,
   ClipboardList, ShieldCheck, XCircle, Send, Edit3, Hourglass, RefreshCw,
   UserCog, MailX, Copy, Bookmark, MessageCircle, AlertTriangle, CheckCheck,
-  LayoutDashboard
+  LayoutDashboard, PlayCircle
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import {
@@ -320,6 +320,7 @@ const EXERCISE_LIBRARY = [
   ex("Pectoraux", "gym", "Développé haltères prise neutre", 4, "10 reps", 75, "Modéré", "Paumes face à face, coudes bas.", "Charge légère au départ.", "Haltères + banc"),
   ex("Pectoraux", "gym", "Crossover à la poulie", 3, "14 reps", 45, "Facile", "Croisement des mains en fin de mouvement.", "Légère flexion des coudes.", "Poulies"),
   ex("Pectoraux", "gym", "Smith machine développé couché", 4, "10 reps", 75, "Modéré", "Trajectoire guidée, focus sur le muscle.", "Réglez les crochets de sécurité.", "Smith machine"),
+  ex("Pectoraux", "gym", "Développé incliné à la Smith machine", 4, "10 reps", 75, "Modéré", "Banc réglé à 30-45°, trajectoire guidée pour isoler le haut des pectoraux.", "Réglez les crochets de sécurité avant de commencer.", "Smith machine"),
   ex("Pectoraux", "home", "Pompes diamant", 3, "10 reps", 60, "Difficile", "Mains rapprochées sous le sternum.", "Cible aussi les triceps."),
   // --- Dos (compléments) ---
   ex("Dos", "gym", "Pull-over haltère", 3, "12 reps", 60, "Modéré", "Étirement complet du grand dorsal.", "Bras légèrement fléchis.", "Haltère + banc"),
@@ -425,10 +426,53 @@ const PROGRAMS = [
 ];
 
 function poolFor(program, dayType) {
-  if (dayType === "upper") return [...POOLS.push.slice(0, 4), ...POOLS.pull.slice(0, 4)];
-  if (dayType === "lower") return POOLS.legs;
   if (dayType === "cardio") return program.location === "home" ? POOLS.cardio : POOLS.cardioGym;
   return POOLS[dayType] || POOLS.fullbodyGym;
+}
+
+function pickN(pool, n, seed) {
+  if (!pool.length) return [];
+  const picks = [];
+  for (let i = 0; i < Math.min(n, pool.length); i++) picks.push(pool[(seed + i) % pool.length]);
+  return picks;
+}
+
+const byCat = (cat) => EXERCISE_LIBRARY.filter(e => e.cat === cat && e.location !== "home");
+const NO_FLAT_BENCH = (e) => !/développé couché/i.test(e.name);
+const SMITH_INCLINE = EXERCISE_LIBRARY.find(e => e.name === "Développé incliné à la Smith machine");
+
+const MUSCLE_POOLS = {
+  chest: byCat("Pectoraux").filter(NO_FLAT_BENCH).filter(e => e.name !== SMITH_INCLINE.name),
+  shoulders: byCat("Épaules"),
+  triceps: byCat("Triceps"),
+  back: byCat("Dos"),
+  biceps: byCat("Biceps"),
+  legs: [...byCat("Quadriceps"), ...byCat("Ischios & Fessiers"), ...byCat("Mollets")],
+};
+
+// Push : toujours le développé incliné à la Smith machine (pas de développé couché classique),
+// + 1 autre exo pecs, + 2 épaules + 2 triceps = 6 exercices
+function buildPush(seed) {
+  const chest = [SMITH_INCLINE, ...pickN(MUSCLE_POOLS.chest, 1, seed)];
+  const shoulders = pickN(MUSCLE_POOLS.shoulders, 2, seed + 1);
+  const triceps = pickN(MUSCLE_POOLS.triceps, 2, seed + 2);
+  return [...chest, ...shoulders, ...triceps];
+}
+// Pull : 3 exercices dos + 3 exercices biceps = 6 exercices
+function buildPull(seed) {
+  return [...pickN(MUSCLE_POOLS.back, 3, seed), ...pickN(MUSCLE_POOLS.biceps, 3, seed + 1)];
+}
+// Legs : 6 exercices puisés dans quadriceps / ischios-fessiers / mollets
+function buildLegs(seed) {
+  return pickN(MUSCLE_POOLS.legs, 6, seed);
+}
+// Upper : 2 pecs (dont Smith incliné) + 2 dos + 1 épaule + 1 bras = 6 exercices
+function buildUpper(seed) {
+  const chest = [SMITH_INCLINE, ...pickN(MUSCLE_POOLS.chest, 1, seed)];
+  const back = pickN(MUSCLE_POOLS.back, 2, seed + 1);
+  const arm = pickN([...MUSCLE_POOLS.triceps, ...MUSCLE_POOLS.biceps], 1, seed + 2);
+  const shoulder = pickN(MUSCLE_POOLS.shoulders, 1, seed + 3);
+  return [...chest, ...back, ...shoulder, ...arm];
 }
 
 function buildDaySession(program, w, dayIdx) {
@@ -454,10 +498,16 @@ function buildDaySession(program, w, dayIdx) {
     return { rest: true, dayType, dayLabel: DAY_NAMES[dayIdx % 7], title: `Semaine ${w} · ${DAY_NAMES[dayIdx % 7]} — Repos` };
   }
   const seed = w * 7 + dayIdx * 3;
-  const pool = poolFor(program, dayType);
-  const n = pool.length;
-  const picks = [];
-  for (let i = 0; i < Math.min(5, n); i++) picks.push(pool[(seed + i) % n]);
+  let picks;
+  if (dayType === "push") picks = buildPush(seed);
+  else if (dayType === "pull") picks = buildPull(seed);
+  else if (dayType === "legs" || dayType === "lower") picks = buildLegs(seed);
+  else if (dayType === "upper") picks = buildUpper(seed);
+  else {
+    const pool = poolFor(program, dayType);
+    picks = [];
+    for (let i = 0; i < Math.min(5, pool.length); i++) picks.push(pool[(seed + i) % pool.length]);
+  }
   const warm = [WARMUP[seed % WARMUP.length], WARMUP[(seed + 2) % WARMUP.length]];
   const cool = [COOLDOWN[seed % COOLDOWN.length], COOLDOWN[(seed + 1) % COOLDOWN.length]];
   const estMain = picks.reduce((acc, e) => acc + e.sets * 1.15, 0);
@@ -599,6 +649,55 @@ function resolveAssignedProgram(state) {
   if (state.assignedProgramId) { const p = PROGRAMS.find(p => p.id === state.assignedProgramId); if (p) return p; }
   return null;
 }
+
+/** Calcule la séance du jour à partir de la date de démarrage du programme.
+ *  Sert de "widget maison" : carte prioritaire sur le dashboard + badge d'app. */
+function computeTodaySession(state) {
+  const program = resolveAssignedProgram(state);
+  if (!program || !state.programStartAt) return null;
+  const start = new Date(state.programStartAt); start.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const daysElapsed = Math.round((today - start) / 86400000);
+  if (daysElapsed < 0) return null;
+  const totalDays = program.weeks * 7;
+  if (daysElapsed >= totalDays) return null;
+  const week = Math.floor(daysElapsed / 7) + 1;
+  const dayIdx = daysElapsed % 7;
+  return { program, week, dayIdx, session: buildDaySession(program, week, dayIdx) };
+}
+
+function extractYouTubeId(url) {
+  if (!url) return null;
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{6,})/);
+  return m ? m[1] : null;
+}
+function youtubeSearchUrl(name) {
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(name + " technique musculation")}`;
+}
+const VideoBlock = ({ c, videoUrl, exerciseName }) => {
+  const vid = extractYouTubeId(videoUrl);
+  if (vid) {
+    return (
+      <div style={{ borderRadius: 14, overflow: "hidden", marginTop: 4 }}>
+        <iframe
+          src={`https://www.youtube.com/embed/${vid}`}
+          title={`Démonstration : ${exerciseName}`}
+          style={{ width: "100%", aspectRatio: "16/9", border: "none", display: "block" }}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+        />
+      </div>
+    );
+  }
+  return (
+    <a href={youtubeSearchUrl(exerciseName)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, background: c.surface2, borderRadius: 12, padding: "10px 12px", color: c.electric2, fontSize: 12.5, fontWeight: 700 }}>
+        <PlayCircle size={16} /> Rechercher une démonstration vidéo
+      </div>
+    </a>
+  );
+};
+
 
 /* ============================================================
    UI PRIMITIVES
@@ -742,13 +841,17 @@ const AuthScreen = ({ c, onAuthed }) => {
     setLoading(true);
     try {
       if (mode === "signup") {
-        await signUp(email.trim(), password, name.trim());
-        setInfo("Compte créé. Votre coach doit valider votre inscription avant que vous puissiez accéder à l'application — connectez-vous pour suivre le statut.");
-        setMode("login");
-        setPassword("");
+        const res = await signUp(email.trim(), password, name.trim());
+        if (res && res.session) {
+          onAuthed(true);
+        } else {
+          setInfo("Compte créé. Vérifiez votre email pour confirmer votre inscription, puis connectez-vous pour renseigner votre profil et suivre le statut de validation.");
+          setMode("login");
+          setPassword("");
+        }
       } else {
         await signIn(email.trim(), password);
-        onAuthed();
+        onAuthed(false);
       }
     } catch (e) {
       const msg = e && e.message ? e.message : "Une erreur est survenue.";
@@ -818,6 +921,69 @@ const AuthScreen = ({ c, onAuthed }) => {
         <p style={{ fontSize: 10.5, color: c.muted, textAlign: "center", marginTop: 20, lineHeight: 1.5 }}>
           Vos données sont hébergées sur Supabase. Aucun accès n'est possible sans validation de votre coach.
         </p>
+      </div>
+    </div>
+  );
+};
+
+const Onboarding = ({ c, name, onComplete }) => {
+  const [weight, setWeight] = useState(70);
+  const [height, setHeight] = useState(170);
+  const [goal, setGoal] = useState("Perte de poids");
+  const [sportLevel, setSportLevel] = useState("Débutant");
+  const [saving, setSaving] = useState(false);
+  const goals = ["Perte de poids", "Prise de masse", "Remise en forme", "Performance"];
+  const levels = ["Débutant", "Intermédiaire", "Avancé"];
+
+  const submit = async () => {
+    setSaving(true);
+    await onComplete({ weight, height, goal, sportLevel });
+  };
+
+  return (
+    <div className="ff-body scrollbar-none anim-fadeIn" style={{ minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, padding: 24, display: "flex", flexDirection: "column", justifyContent: "center", overflowY: "auto" }}>
+      <div style={{ maxWidth: 400, margin: "0 auto", width: "100%" }}>
+        <Logo c={c} size={52} style={{ margin: "0 auto 16px" }} />
+        <h1 className="ff-display" style={{ fontSize: 21, fontWeight: 700, textAlign: "center", marginBottom: 6 }}>Bienvenue {name} 👋</h1>
+        <p style={{ color: c.muted, fontSize: 13, textAlign: "center", marginBottom: 26 }}>Quelques infos pour démarrer votre suivi à zéro. Votre coach validera ensuite votre inscription.</p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <div style={labelStyle(c)}>Poids actuel (kg)</div>
+              <input type="number" style={inputStyle(c)} value={weight} onChange={e => setWeight(Number(e.target.value))} />
+            </div>
+            <div>
+              <div style={labelStyle(c)}>Taille (cm)</div>
+              <input type="number" style={inputStyle(c)} value={height} onChange={e => setHeight(Number(e.target.value))} />
+            </div>
+          </div>
+          <div>
+            <div style={labelStyle(c)}>Objectif principal</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {goals.map(g => (
+                <button key={g} onClick={() => setGoal(g)} style={{
+                  padding: "9px 14px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                  border: `1px solid ${goal === g ? "transparent" : c.border}`, background: goal === g ? c.gradA : c.surface2, color: goal === g ? "#fff" : c.text
+                }}>{g}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={labelStyle(c)}>Niveau sportif</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {levels.map(l => (
+                <button key={l} onClick={() => setSportLevel(l)} style={{
+                  flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                  border: `1px solid ${sportLevel === l ? "transparent" : c.border}`, background: sportLevel === l ? c.gradA : c.surface2, color: sportLevel === l ? "#fff" : c.text
+                }}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <PrimaryBtn c={c} full onClick={submit} disabled={saving} icon={Check} style={{ marginTop: 8 }}>
+            {saving ? "Enregistrement..." : "Valider mon profil"}
+          </PrimaryBtn>
+        </div>
       </div>
     </div>
   );
@@ -1040,7 +1206,7 @@ const InstallModal = ({ c, onClose }) => (
    TOP BAR + DRAWER NAV (menu 3 barres à gauche)
 ============================================================ */
 const TopBar = ({ c, title, onBack, dark, setDark, onInstall, onMenu }) => (
-  <div style={{ position: "sticky", top: 0, zIndex: 20, background: c.bg + "ee", backdropFilter: "blur(10px)", borderBottom: `1px solid ${c.border}`, padding: "16px 18px", display: "flex", alignItems: "center", gap: 10 }}>
+  <div style={{ position: "sticky", top: 0, zIndex: 20, background: c.bg + "ee", backdropFilter: "blur(10px)", borderBottom: `1px solid ${c.border}`, padding: "calc(16px + env(safe-area-inset-top)) 18px 16px", display: "flex", alignItems: "center", gap: 10 }}>
     {onBack ? (
       <IconBtn icon={ArrowLeft} c={c} onClick={onBack} />
     ) : (
@@ -1072,7 +1238,7 @@ const Drawer = ({ c, open, onClose, tab, setTab, profile, onLogout }) => {
         position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 360, width: 270,
         background: c.surface, borderRight: `1px solid ${c.border}`, display: "flex", flexDirection: "column",
         transform: open ? "translateX(0)" : "translateX(-100%)", transition: "transform .28s cubic-bezier(.16,1,.3,1)",
-        padding: "22px 16px", boxShadow: open ? "20px 0 60px rgba(0,0,0,0.3)" : "none"
+        padding: "calc(22px + env(safe-area-inset-top)) 16px 22px", boxShadow: open ? "20px 0 60px rgba(0,0,0,0.3)" : "none"
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24, padding: "0 6px" }}>
           <Logo c={c} size={32} />
@@ -1120,7 +1286,7 @@ const Drawer = ({ c, open, onClose, tab, setTab, profile, onLogout }) => {
 /* ============================================================
    DASHBOARD
 ============================================================ */
-const Dashboard = ({ c, state, quote, openProgram, goTab }) => {
+const Dashboard = ({ c, state, quote, openProgram, openSession, goTab }) => {
   const { xp, level, streak, sessionsCompleted, totalMinutes, calories, name } = state;
   const curLevelXp = xpForLevel(level - 1);
   const nextLevelXp = xpForLevel(level);
@@ -1619,8 +1785,162 @@ const RestDayScreen = ({ c }) => (
   </div>
 );
 
+/* ============================================================
+   MODE FOCUS — un exercice plein écran à la fois, avec repos
+   obligatoire plein écran entre les séries.
+============================================================ */
+const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, onContinue, onExitFocus }) => {
+  const [sets, setSets] = useState(() => Array.from({ length: exercise.sets }, () => ({ weight: "", reps: "", done: false })));
+  const [phase, setPhase] = useState("input"); // input | resting | done
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [weight, setWeight] = useState("");
+  const [reps, setReps] = useState("");
+  const [restRemaining, setRestRemaining] = useState(exercise.rest);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const timeBased = /sec|min/.test(exercise.reps);
+
+  useEffect(() => {
+    if (phase !== "resting") return;
+    if (restRemaining <= 0) { setPhase("input"); return; }
+    const t = setTimeout(() => setRestRemaining(r => r - 1), 1000);
+    return () => clearTimeout(t);
+  }, [phase, restRemaining]);
+
+  const validate = () => {
+    if (weight === "" || reps === "") return;
+    setSets(s => s.map((row, i) => i === activeIdx ? { weight, reps, done: true } : row));
+    setWeight(""); setReps("");
+    if (activeIdx === exercise.sets - 1) {
+      setPhase("done");
+      onExerciseDone();
+    } else {
+      setActiveIdx(a => a + 1);
+      setRestRemaining(exercise.rest);
+      setPhase("resting");
+    }
+  };
+
+  const restPct = ((exercise.rest - restRemaining) / exercise.rest) * 100;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: c.bg, backgroundImage: c.bgGrad, display: "flex", flexDirection: "column", padding: "calc(18px + env(safe-area-inset-top)) 20px calc(18px + env(safe-area-inset-bottom))" }} className="ff-body anim-fadeIn">
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+        <button onClick={onExitFocus} style={{ width: 38, height: 38, borderRadius: 12, border: `1px solid ${c.border}`, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: c.text }}>
+          <X size={18} />
+        </button>
+        <div style={{ flex: 1 }}>
+          <div style={{ height: 6, background: c.surface2, borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${((index + (phase === "done" ? 1 : 0)) / total) * 100}%`, background: c.gradA, borderRadius: 4, transition: "width .4s ease" }} />
+          </div>
+          <div style={{ fontSize: 11, color: c.muted, marginTop: 5 }}>Exercice {index + 1} / {total}</div>
+        </div>
+        <button onClick={() => setInfoOpen(!infoOpen)} style={{ width: 38, height: 38, borderRadius: 12, border: `1px solid ${c.border}`, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: c.electric2 }}>
+          <Info size={18} />
+        </button>
+      </div>
+
+      {infoOpen && (
+        <Card c={c} style={{ marginBottom: 14, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          {exercise.tips && <div style={{ display: "flex", gap: 8, fontSize: 12.5 }}><Info size={14} color={c.electric2} style={{ flexShrink: 0, marginTop: 1 }} /><span><b>Conseil :</b> {exercise.tips}</span></div>}
+          {exercise.safety && <div style={{ display: "flex", gap: 8, fontSize: 12.5 }}><Shield size={14} color={c.warning} style={{ flexShrink: 0, marginTop: 1 }} /><span><b>Sécurité :</b> {exercise.safety}</span></div>}
+          <VideoBlock c={c} videoUrl={exercise.videoUrl} exerciseName={exercise.name} />
+        </Card>
+      )}
+
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+        {phase !== "done" && (
+          <>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: c.electric2, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>
+              {exercise.cat}{exercise.equip ? ` · ${exercise.equip}` : ""}
+            </div>
+            <h1 className="ff-display" style={{ fontSize: 25, fontWeight: 700, margin: "0 0 6px", lineHeight: 1.15 }}>{exercise.name}</h1>
+            <div style={{ fontSize: 13, color: c.muted, marginBottom: 28 }}>{exercise.sets} séries × {exercise.reps}</div>
+
+            <div style={{ display: "flex", gap: 6, marginBottom: 30 }}>
+              {sets.map((s, i) => (
+                <div key={i} style={{
+                  width: 10, height: 10, borderRadius: "50%",
+                  background: s.done ? c.success : i === activeIdx ? c.electric2 : c.surface2,
+                  border: i === activeIdx && !s.done ? `2px solid ${c.electric2}` : "none"
+                }} />
+              ))}
+            </div>
+          </>
+        )}
+
+        {phase === "input" && (
+          <div style={{ width: "100%", maxWidth: 340 }} className="anim-pop">
+            <div className="ff-display" style={{ fontSize: 15, fontWeight: 700, marginBottom: 20, color: c.electric2 }}>Série {activeIdx + 1} sur {exercise.sets}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 24 }}>
+              <div>
+                <div style={{ fontSize: 12, color: c.muted, marginBottom: 8 }}>Charge (kg)</div>
+                <input type="number" inputMode="decimal" value={weight} onChange={e => setWeight(e.target.value)} placeholder="0" autoFocus
+                  style={{ width: "100%", textAlign: "center", background: c.surface, border: `1.5px solid ${c.border}`, borderRadius: 16, padding: "18px 10px", color: c.text, fontSize: 26, fontWeight: 700, outline: "none" }} className="ff-mono" />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: c.muted, marginBottom: 8 }}>{timeBased ? "Temps (sec)" : "Répétitions"}</div>
+                <input type="number" inputMode="numeric" value={reps} onChange={e => setReps(e.target.value)} placeholder="0"
+                  style={{ width: "100%", textAlign: "center", background: c.surface, border: `1.5px solid ${c.border}`, borderRadius: 16, padding: "18px 10px", color: c.text, fontSize: 26, fontWeight: 700, outline: "none" }} className="ff-mono" />
+              </div>
+            </div>
+            <PrimaryBtn c={c} full icon={Check} disabled={weight === "" || reps === ""} onClick={validate} style={{ padding: "16px 20px", fontSize: 15 }}>
+              Valider la série
+            </PrimaryBtn>
+          </div>
+        )}
+
+        {phase === "resting" && (
+          <div className="anim-pop">
+            <Ring pct={restPct} size={220} stroke={14} c={c}>
+              <div style={{ textAlign: "center" }}>
+                <div className="ff-mono anim-softPulse" style={{ fontSize: 52, fontWeight: 700, color: c.text, lineHeight: 1 }}>{restRemaining}</div>
+                <div style={{ fontSize: 11, color: c.muted, marginTop: 4 }}>secondes</div>
+              </div>
+            </Ring>
+            <div className="ff-display" style={{ fontSize: 17, fontWeight: 700, marginTop: 24, display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
+              <Lock size={16} color={c.electric2} /> Repos obligatoire
+            </div>
+            <div style={{ fontSize: 12.5, color: c.muted, marginTop: 6 }}>Série {activeIdx + 1} débloquée automatiquement</div>
+          </div>
+        )}
+
+        {phase === "done" && (
+          <div className="anim-pop" style={{ width: "100%", maxWidth: 340 }}>
+            <div style={{ width: 78, height: 78, borderRadius: "50%", background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
+              <CheckCircle2 size={38} color="#fff" />
+            </div>
+            <h2 className="ff-display" style={{ fontSize: 19, fontWeight: 700, marginBottom: 6 }}>{exercise.name} terminé</h2>
+            <p style={{ fontSize: 13, color: c.muted, marginBottom: 30 }}>
+              {nextName ? <>Prochain exercice : <b style={{ color: c.text }}>{nextName}</b></> : "Dernier exercice de la séance terminé 🎉"}
+            </p>
+            <PrimaryBtn c={c} full icon={nextName ? ChevronRight : CheckCircle2} onClick={onContinue} style={{ padding: "16px 20px", fontSize: 15 }}>
+              {nextName ? "Exercice suivant" : "Terminer"}
+            </PrimaryBtn>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const FocusRunner = ({ c, exercises, startIndex, onMarkDone, onClose }) => {
+  const [idx, setIdx] = useState(startIndex);
+  const exercise = exercises[idx];
+  const isLast = idx === exercises.length - 1;
+
+  return (
+    <FocusExercise key={idx} c={c} exercise={exercise} index={idx} total={exercises.length}
+      nextName={isLast ? null : exercises[idx + 1].name}
+      onExerciseDone={() => onMarkDone(idx)}
+      onContinue={() => { if (isLast) onClose(); else setIdx(idx + 1); }}
+      onExitFocus={onClose} />
+  );
+};
+
 const SessionDetail = ({ c, session, onComplete, completed }) => {
   const [doneMap, setDoneMap] = useState({});
+  const [focusOpen, setFocusOpen] = useState(false);
+  const [focusStart, setFocusStart] = useState(0);
   if (session.rest) return <RestDayScreen c={c} />;
   const totalExercises = session.warm.length + session.main.length + session.cool.length;
   const doneCount = Object.keys(doneMap).length;
@@ -1664,11 +1984,34 @@ const SessionDetail = ({ c, session, onComplete, completed }) => {
         Exercices principaux
       </SectionTitle>
       <p style={{ fontSize: 11.5, color: c.muted, marginTop: -6, marginBottom: 12, lineHeight: 1.5 }}>
-        Renseignez la charge et les répétitions de chaque série. Un temps de repos obligatoire se déclenche automatiquement avant la série suivante.
+        Chaque exercice s'ouvre en plein écran, un à la fois, avec un repos obligatoire entre les séries.
       </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
-        {session.main.map((e, i) => <ExerciseLogger key={i} e={e} c={c} i={i + 1} onExerciseDone={markDone} />)}
+      <PrimaryBtn c={c} full icon={Play} style={{ marginBottom: 12 }} onClick={() => {
+        const firstIncomplete = session.main.findIndex((_, i) => !doneMap[i]);
+        setFocusStart(firstIncomplete === -1 ? 0 : firstIncomplete);
+        setFocusOpen(true);
+      }}>
+        {doneCount === 0 ? "Démarrer les exercices" : doneCount < session.main.length ? `Reprendre (${doneCount}/${session.main.length})` : "Revoir les exercices"}
+      </PrimaryBtn>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+        {session.main.map((e, i) => (
+          <Card key={i} c={c} onClick={() => { setFocusStart(i); setFocusOpen(true); }} style={{ padding: 12, display: "flex", alignItems: "center", gap: 12 }}>
+            <div className="ff-mono" style={{
+              width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700,
+              background: doneMap[i] ? c.success : c.surface2, color: doneMap[i] ? "#fff" : c.text
+            }}>{doneMap[i] ? <Check size={13} /> : i + 1}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{e.name}</div>
+              <div style={{ fontSize: 11, color: c.muted }}>{e.sets} séries × {e.reps}</div>
+            </div>
+            <ChevronRight size={16} color={c.muted} />
+          </Card>
+        ))}
       </div>
+      {focusOpen && (
+        <FocusRunner c={c} exercises={session.main} startIndex={focusStart}
+          onMarkDone={(i) => markDone(i)} onClose={() => setFocusOpen(false)} />
+      )}
 
       <SectionTitle c={c}>Retour au calme</SectionTitle>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 26 }}>
@@ -1987,6 +2330,7 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
   const [cTips, setCTips] = useState("");
   const [cSafety, setCSafety] = useState("");
   const [cEquip, setCEquip] = useState("");
+  const [cVideo, setCVideo] = useState("");
 
   const filtered = EXERCISE_LIBRARY.filter(e =>
     (e.location === location || e.location === "both") &&
@@ -2000,8 +2344,9 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
       id: `custom-${Date.now()}`, cat: cCat, location, name: cName.trim(),
       sets: Number(cSets) || 3, reps: cReps.trim() || "12 reps", rest: Number(cRest) || 60,
       diff: cDiff, tips: cTips.trim(), safety: cSafety.trim(), equip: cEquip.trim() || undefined,
+      videoUrl: cVideo.trim() || undefined,
     });
-    setCName(""); setCTips(""); setCSafety(""); setCEquip(""); setCSets(3); setCReps("12 reps"); setCRest(60);
+    setCName(""); setCTips(""); setCSafety(""); setCEquip(""); setCVideo(""); setCSets(3); setCReps("12 reps"); setCRest(60);
     setShowCustom(false);
   };
 
@@ -2048,6 +2393,7 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
           <input style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12 }} placeholder="Matériel (optionnel)" value={cEquip} onChange={e => setCEquip(e.target.value)} />
           <textarea style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12, minHeight: 44, resize: "vertical" }} placeholder="Conseil technique (optionnel)" value={cTips} onChange={e => setCTips(e.target.value)} />
           <textarea style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12, minHeight: 44, resize: "vertical" }} placeholder="Consigne de sécurité (optionnel)" value={cSafety} onChange={e => setCSafety(e.target.value)} />
+          <input style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12 }} placeholder="Lien vidéo YouTube (optionnel)" value={cVideo} onChange={e => setCVideo(e.target.value)} />
           <PrimaryBtn c={c} full icon={Plus} disabled={!cName.trim()} onClick={addCustom} style={{ padding: "9px 14px" }}>Ajouter à la séance</PrimaryBtn>
         </div>
       )}
@@ -2092,6 +2438,11 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
                 <input type="number" min={0} value={e.rest} onChange={ev => onUpdate(idx, "rest", Number(ev.target.value) || 0)}
                   style={{ width: "100%", background: c.surface2, border: `1px solid ${c.border}`, borderRadius: 8, padding: "6px 8px", color: c.text, fontSize: 12 }} />
               </div>
+            </div>
+            <div style={{ marginTop: 6 }}>
+              <div style={{ fontSize: 9.5, color: c.muted, marginBottom: 2 }}>Lien vidéo YouTube (optionnel)</div>
+              <input value={e.videoUrl || ""} onChange={ev => onUpdate(idx, "videoUrl", ev.target.value)} placeholder="https://youtube.com/watch?v=..."
+                style={{ width: "100%", background: c.surface2, border: `1px solid ${c.border}`, borderRadius: 8, padding: "6px 8px", color: c.text, fontSize: 11.5 }} />
             </div>
           </div>
         ))}
@@ -2389,14 +2740,14 @@ const AdminPanel = ({ c, onExit }) => {
 
   return (
     <div className="ff-body scrollbar-none anim-fadeIn" style={{ minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text }}>
-      <div style={{ position: "sticky", top: 0, zIndex: 20, background: c.bg + "ee", backdropFilter: "blur(10px)", borderBottom: `1px solid ${c.border}`, padding: "16px 18px", display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ position: "sticky", top: 0, zIndex: 20, background: c.bg + "ee", backdropFilter: "blur(10px)", borderBottom: `1px solid ${c.border}`, padding: "calc(16px + env(safe-area-inset-top)) 18px 16px", display: "flex", alignItems: "center", gap: 10 }}>
         <Logo c={c} size={30} />
         <span className="ff-display" style={{ fontWeight: 700, fontSize: 16, flex: 1 }}>Espace coach</span>
         <IconBtn icon={RefreshCw} c={c} onClick={load} />
-        <IconBtn icon={LogOut} c={c} onClick={onExit} />
       </div>
 
       <div style={{ padding: 18 }}>
+        <SecondaryBtn c={c} full icon={LogOut} onClick={onExit} style={{ marginBottom: 16, color: c.danger }}>Déconnexion</SecondaryBtn>
         {err && <div style={{ fontSize: 12, color: c.danger, background: "rgba(255,59,48,0.1)", padding: "10px 12px", borderRadius: 10, marginBottom: 14 }}>{err}</div>}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
           <Card c={c}><Users size={16} color={c.electric2} style={{ marginBottom: 8 }} /><div className="ff-mono" style={{ fontWeight: 700, fontSize: 20 }}>{clients.length}</div><div style={{ fontSize: 11, color: c.muted }}>Clients actifs</div></Card>
@@ -2469,7 +2820,7 @@ export default function App() {
     document.body.style.background = c.bg;
   }, [c.bg]);
 
-  const [screen, setScreen] = useState("boot"); // boot | landing | auth | pending | rejected | app | admin
+  const [screen, setScreen] = useState("boot"); // boot | landing | auth | onboarding | pending | rejected | app | admin
   const [accountEmail, setAccountEmail] = useState(null);
   const [profileId, setProfileId] = useState(null);
   const [tab, setTab] = useState("home");
@@ -2501,6 +2852,7 @@ export default function App() {
       status: profile.status || "pending",
       assignedProgramId: profile.assignedProgramId || null,
       customProgram: profile.customProgram || null,
+      programStartAt: profile.programStartAt || null,
     });
     setCompletedSessions(profile.completedSessions || {});
     setWater(profile.water ?? 3);
@@ -2528,11 +2880,23 @@ export default function App() {
     })();
   }, []);
 
-  const handleAuthed = async () => {
+  const handleAuthed = async (isNewSignup) => {
     try {
       const profile = await getSessionProfile();
-      if (profile) routeProfile(profile);
+      if (!profile) return;
+      if (isNewSignup) { applyProfile(profile); setScreen("onboarding"); }
+      else routeProfile(profile);
     } catch (e) { /* reste sur l'écran de connexion */ }
+  };
+
+  const handleOnboardingComplete = async (fields) => {
+    setState(s => ({ ...s, ...fields }));
+    if (profileId) {
+      try {
+        await updateOwnProgress(profileId, { ...state, ...fields, completedSessions, water, dark });
+      } catch (e) { /* on continue quand même, la sauvegarde périodique réessaiera */ }
+    }
+    setScreen("pending");
   };
 
   const handlePendingResolved = (profile) => routeProfile(profile);
@@ -2585,6 +2949,9 @@ export default function App() {
   if (screen === "auth") {
     return <><GlobalStyle /><AuthScreen c={c} onAuthed={handleAuthed} /></>;
   }
+  if (screen === "onboarding") {
+    return <><GlobalStyle /><Onboarding c={c} name={state.name} onComplete={handleOnboardingComplete} /></>;
+  }
   if (screen === "admin") {
     return <><GlobalStyle /><AdminPanel c={c} onExit={logout} /></>;
   }
@@ -2607,7 +2974,7 @@ export default function App() {
     const key = `${view.program.id || view.program.name}-${view.w}-${view.dayIdx}`;
     content = <SessionDetail key={key} c={c} session={view.session} onComplete={handleComplete} completed={!!completedSessions[key]} />;
   } else if (tab === "home") {
-    content = <Dashboard c={c} state={state} quote={quote} openProgram={openProgram} goTab={goTab} />;
+    content = <Dashboard c={c} state={state} quote={quote} openProgram={openProgram} openSession={openSession} goTab={goTab} />;
   } else if (tab === "programs") {
     content = <ProgramsList c={c} openProgram={openProgram} state={state} />;
   } else if (tab === "calendar") {

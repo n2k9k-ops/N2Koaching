@@ -112,3 +112,8 @@ n2koaching/
 - **Programmes de la bibliothèque** : `src/App.jsx`, constante `PROGRAMS`.
 - **Bibliothèque d'exercices du coach** : `src/App.jsx`, constante `EXERCISE_LIBRARY` (et `EXERCISE_CATEGORIES` pour les catégories).
 - **Icônes** : `public/icons/`.
+
+## Vidéos de démonstration
+
+Un lien YouTube optionnel peut être attaché à chaque exercice quand tu construis une séance sur-mesure (que tu piochais dans la bibliothèque ou que tu crées un exercice personnalisé). Si un lien est renseigné, la vidéo s'affiche intégrée directement dans l'app (mode focus). Sans lien renseigné, un bouton "Rechercher une démonstration vidéo" ouvre une recherche YouTube pré-remplie avec le nom de l'exercice.
+

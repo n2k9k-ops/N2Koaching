@@ -26,12 +26,14 @@ create table if not exists public.profiles (
   assigned_program_id text,
   custom_program jsonb,
   last_session_at timestamptz,
+  program_start_at timestamptz default now(),
   created_at timestamptz not null default now()
 );
 
--- Si vous aviez déjà créé la table avant cette mise à jour, exécutez cette ligne
--- seule pour ajouter la colonne manquante :
+-- Si vous aviez déjà créé la table avant cette mise à jour, exécutez ces lignes
+-- seules pour ajouter les colonnes manquantes :
 alter table public.profiles add column if not exists last_session_at timestamptz;
+alter table public.profiles add column if not exists program_start_at timestamptz default now();
 
 alter table public.profiles enable row level security;
 
@@ -78,6 +80,7 @@ begin
     new.is_admin := old.is_admin;
     new.assigned_program_id := old.assigned_program_id;
     new.custom_program := old.custom_program;
+    new.program_start_at := old.program_start_at;
   end if;
   return new;
 end;

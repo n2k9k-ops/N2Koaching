@@ -24,6 +24,7 @@ function rowToProfile(row) {
     assignedProgramId: row.assigned_program_id,
     customProgram: row.custom_program,
     lastSessionAt: row.last_session_at,
+    programStartAt: row.program_start_at,
   };
 }
 
@@ -104,6 +105,7 @@ export async function assignLibraryProgram(id, programId) {
   const { error } = await supabase.from("profiles").update({
     assigned_program_id: programId || null,
     custom_program: null,
+    program_start_at: new Date().toISOString(),
   }).eq("id", id);
   if (error) throw error;
 }
@@ -112,6 +114,7 @@ export async function assignCustomProgram(id, programObj) {
   const { error } = await supabase.from("profiles").update({
     custom_program: programObj,
     assigned_program_id: null,
+    program_start_at: new Date().toISOString(),
   }).eq("id", id);
   if (error) throw error;
 }
