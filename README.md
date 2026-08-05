@@ -127,3 +127,12 @@ Un lien YouTube optionnel peut être attaché à chaque exercice quand tu constr
 - **Photos par exercice** : un bucket de stockage Supabase (`exercise-photos`, public en lecture, écriture réservée au coach) permet d'attacher une photo de référence à n'importe quel exercice depuis le constructeur de séance sur-mesure, affichée en mode focus à côté de la vidéo.
 
 ⚠️ Comme pour les mises à jour précédentes : relance `supabase/schema.sql` en entier dans le SQL Editor (ajoute la table `weight_logs` et le bucket `exercise-photos`, sans risque à rejouer).
+
+## Onboarding complet, compléments alimentaires, photo de profil
+
+- **Onboarding en 7 étapes** : poids, taille, âge, genre, objectif (perte de poids / prise de masse / recomposition / performance), fréquence d'entraînement, blessures/limitations (optionnel). Toutes les infos sont désormais réellement demandées et enregistrées — plus de valeurs par défaut génériques dans le profil.
+- **Compléments alimentaires suggérés** (onglet Nutrition) : recommandations générales adaptées à l'objectif du client (ex. créatine + whey pour la prise de masse, whey + fibres pour la perte de poids), avec un disclaimer clair — c'est de l'information éducative générale, pas un avis médical personnalisé.
+- **Photo de profil** : bouton caméra sur l'avatar dans l'onglet Profil, upload direct vers un bucket Supabase Storage dédié (`avatars`, chaque utilisateur ne peut écrire que dans son propre dossier).
+- Le calculateur de calories dans Nutrition utilise maintenant l'âge et le genre réels du profil comme valeurs par défaut (au lieu de 28 ans / homme codés en dur).
+
+⚠️ Relance `supabase/schema.sql` en entier (ajoute `gender`, `injuries`, `avatar_url` sur `profiles`, et le bucket `avatars`).

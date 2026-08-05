@@ -28,6 +28,9 @@ function rowToProfile(row) {
     onboarded: row.onboarded,
     age: row.age,
     trainingFrequency: row.training_frequency,
+    gender: row.gender,
+    injuries: row.injuries,
+    avatarUrl: row.avatar_url,
   };
 }
 
@@ -96,8 +99,12 @@ export async function completeOnboarding(id, fields) {
   const sportLevel = fields.trainingFrequency <= 2 ? "Débutant" : fields.trainingFrequency <= 4 ? "Intermédiaire" : "Avancé";
   const { error } = await supabase.from("profiles").update({
     weight: fields.weight,
+    height: fields.height,
     age: fields.age,
     training_frequency: fields.trainingFrequency,
+    gender: fields.gender,
+    goal: fields.goal,
+    injuries: fields.injuries || null,
     sport_level: sportLevel,
     onboarded: true,
   }).eq("id", id);
@@ -187,6 +194,22 @@ export async function listWeightLogs(profileId) {
     .order("logged_at", { ascending: true });
   if (error) throw error;
   return data.map(r => ({ weight: r.weight, loggedAt: r.logged_at }));
+}
+
+/* ---------------- Photo de profil ---------------- */
+
+export async function uploadAvatar(file, userId) {
+  const ext = file.name.split(".").pop();
+  const path = `${userId}/avatar-${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+  if (error) throw error;
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+export async function updateAvatarUrl(id, url) {
+  const { error } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", id);
+  if (error) throw error;
 }
 
 /* ---------------- Photos de référence par exercice ---------------- */

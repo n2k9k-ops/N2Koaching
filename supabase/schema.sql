@@ -30,6 +30,9 @@ create table if not exists public.profiles (
   onboarded boolean not null default false,
   age integer,
   training_frequency integer,
+  gender text,
+  injuries text,
+  avatar_url text,
   created_at timestamptz not null default now()
 );
 
@@ -40,6 +43,9 @@ alter table public.profiles add column if not exists program_start_at timestampt
 alter table public.profiles add column if not exists onboarded boolean not null default false;
 alter table public.profiles add column if not exists age integer;
 alter table public.profiles add column if not exists training_frequency integer;
+alter table public.profiles add column if not exists gender text;
+alter table public.profiles add column if not exists injuries text;
+alter table public.profiles add column if not exists avatar_url text;
 -- Ne redemande pas l'onboarding aux comptes déjà existants avant cette mise à jour :
 update public.profiles set onboarded = true where created_at < now();
 
@@ -203,6 +209,29 @@ create policy "exercise_photos_admin_write" on storage.objects
 drop policy if exists "exercise_photos_admin_delete" on storage.objects;
 create policy "exercise_photos_admin_delete" on storage.objects
   for delete using (bucket_id = 'exercise-photos' and public.is_admin(auth.uid()));
+
+-- ============================================================
+-- PHOTOS DE PROFIL (avatar par utilisateur)
+-- ============================================================
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+drop policy if exists "avatars_public_read" on storage.objects;
+create policy "avatars_public_read" on storage.objects
+  for select using (bucket_id = 'avatars');
+
+drop policy if exists "avatars_own_write" on storage.objects;
+create policy "avatars_own_write" on storage.objects
+  for insert with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "avatars_own_update" on storage.objects;
+create policy "avatars_own_update" on storage.objects
+  for update using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "avatars_own_delete" on storage.objects;
+create policy "avatars_own_delete" on storage.objects
+  for delete using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
 
 -- ============================================================
 -- ÉTAPE MANUELLE : créer votre premier compte coach

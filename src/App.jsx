@@ -640,6 +640,32 @@ function computeCalendarHistory(completedSessions, year, month) {
   return history;
 }
 
+function getSupplementSuggestions(goal) {
+  const common = [
+    { name: "Vitamine D", why: "Souvent déficiente, notamment en cas de faible exposition au soleil. Joue un rôle dans la santé osseuse et immunitaire." },
+    { name: "Oméga-3 (EPA/DHA)", why: "Soutien de la récupération et de la santé cardiovasculaire, notamment si peu de poisson gras au menu." },
+  ];
+  const byGoal = {
+    "Perte de poids": [
+      { name: "Whey protéine", why: "Aide à atteindre l'apport en protéines tout en restant en déficit calorique, pour préserver la masse musculaire." },
+      { name: "Fibres / psyllium", why: "Peut aider la satiété en période de restriction calorique." },
+    ],
+    "Prise de masse": [
+      { name: "Whey ou gainer", why: "Facilite l'atteinte d'un surplus calorique et d'un apport protéique élevé." },
+      { name: "Créatine monohydrate", why: "Le supplément le plus étudié pour la force et le volume musculaire." },
+    ],
+    "Recomposition": [
+      { name: "Whey protéine", why: "Soutient la récupération et le maintien musculaire pendant les phases de recomposition." },
+      { name: "Créatine monohydrate", why: "Peut soutenir la force pendant que la composition corporelle évolue." },
+    ],
+    "Performance": [
+      { name: "Créatine monohydrate", why: "Bénéfices bien documentés sur la force et la puissance." },
+      { name: "Caféine", why: "Peut soutenir l'énergie et la concentration avant l'effort, à dose raisonnable." },
+    ],
+  };
+  return [...(byGoal[goal] || byGoal["Recomposition"]), ...common];
+}
+
 const QUOTES = [
   "La discipline, c'est se souvenir de ce que l'on veut.",
   "Chaque séance vous rapproche de la meilleure version de vous-même.",
@@ -1055,18 +1081,62 @@ const FrequencyPicker = ({ c, value, setValue }) => (
   </div>
 );
 
+const CardPicker = ({ c, value, setValue, options, columns = 2 }) => (
+  <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns},1fr)`, gap: 10, width: "100%" }}>
+    {options.map(opt => (
+      <button key={opt.value} onClick={() => setValue(opt.value)} style={{
+        padding: "18px 10px", borderRadius: 16, cursor: "pointer",
+        border: `2px solid ${value === opt.value ? "transparent" : c.border}`,
+        background: value === opt.value ? c.gradA : c.surface2, color: value === opt.value ? "#fff" : c.text,
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+        boxShadow: value === opt.value ? "0 8px 20px rgba(0,113,227,0.35)" : "none", transition: "all .15s"
+      }}>
+        {opt.icon && <opt.icon size={22} />}
+        <span style={{ fontSize: 12.5, fontWeight: 700, textAlign: "center" }}>{opt.label}</span>
+      </button>
+    ))}
+  </div>
+);
+
 const Onboarding = ({ c, name, onComplete }) => {
   const [step, setStep] = useState(0);
   const [weight, setWeight] = useState(70);
+  const [height, setHeight] = useState(170);
   const [age, setAge] = useState(25);
+  const [gender, setGender] = useState("homme");
+  const [goal, setGoal] = useState("Perte de poids");
   const [frequency, setFrequency] = useState(3);
+  const [injuries, setInjuries] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const steps = [
     { title: "Quel est votre poids ?", subtitle: "Ça nous permet de calculer vos besoins caloriques.", content: <NumberDial c={c} value={weight} setValue={setWeight} min={35} max={180} unit="kg" /> },
+    { title: "Quelle est votre taille ?", subtitle: "Utile pour affiner le calcul de vos besoins.", content: <NumberDial c={c} value={height} setValue={setHeight} min={130} max={220} unit="cm" /> },
     { title: "Quel âge avez-vous ?", subtitle: "Pour adapter l'intensité recommandée de vos séances.", content: <NumberDial c={c} value={age} setValue={setAge} min={14} max={90} unit="ans" /> },
+    {
+      title: "Vous êtes...", subtitle: "Pour un calcul plus précis de vos besoins caloriques.",
+      content: <CardPicker c={c} value={gender} setValue={setGender} columns={2} options={[
+        { value: "homme", label: "Homme" }, { value: "femme", label: "Femme" },
+      ]} />
+    },
+    {
+      title: "Quel est votre objectif principal ?", subtitle: "Votre programme et vos conseils seront adaptés en conséquence.",
+      content: <CardPicker c={c} value={goal} setValue={setGoal} columns={2} options={[
+        { value: "Perte de poids", label: "Perte de poids", icon: Flame },
+        { value: "Prise de masse", label: "Prise de masse", icon: Dumbbell },
+        { value: "Recomposition", label: "Recomposition", icon: Activity },
+        { value: "Performance", label: "Performance", icon: Trophy },
+      ]} />
+    },
     { title: "À quelle fréquence voulez-vous vous entraîner ?", subtitle: "Le nombre de séances par semaine que vous visez.", content: <FrequencyPicker c={c} value={frequency} setValue={setFrequency} /> },
+    {
+      title: "Blessures ou limitations ?", subtitle: "Optionnel — votre coach en tiendra compte pour votre programme.",
+      content: (
+        <textarea value={injuries} onChange={e => setInjuries(e.target.value)} placeholder="Ex : douleur au genou droit, épaule sensible..."
+          style={{ ...inputStyle(c), minHeight: 90, resize: "vertical", textAlign: "left" }} />
+      )
+    },
   ];
   const isLast = step === steps.length - 1;
 
@@ -1074,7 +1144,7 @@ const Onboarding = ({ c, name, onComplete }) => {
     if (!isLast) { setStep(s => s + 1); return; }
     setSaving(true); setError("");
     try {
-      await onComplete({ weight, age, trainingFrequency: frequency });
+      await onComplete({ weight, height, age, gender, goal, trainingFrequency: frequency, injuries: injuries.trim() });
     } catch (e) {
       setError(e && e.message ? e.message : "Une erreur est survenue, réessayez.");
       setSaving(false);
@@ -1084,18 +1154,18 @@ const Onboarding = ({ c, name, onComplete }) => {
   return (
     <div className="ff-body scrollbar-none anim-fadeIn" style={{ minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, padding: 24, display: "flex", flexDirection: "column", justifyContent: "center", overflowY: "auto" }}>
       <div style={{ maxWidth: 380, margin: "0 auto", width: "100%" }}>
-        <Logo c={c} size={48} style={{ margin: "0 auto 16px" }} />
+        <Logo c={c} size={44} style={{ margin: "0 auto 14px" }} />
         {step === 0 && <p style={{ color: c.muted, fontSize: 13, textAlign: "center", marginBottom: 4 }}>Bienvenue {name} 👋</p>}
 
-        <div style={{ display: "flex", gap: 6, justifyContent: "center", marginBottom: 30, marginTop: 14 }}>
+        <div style={{ display: "flex", gap: 5, justifyContent: "center", marginBottom: 26, marginTop: 12, flexWrap: "wrap" }}>
           {steps.map((_, i) => (
-            <div key={i} style={{ width: i === step ? 22 : 8, height: 8, borderRadius: 4, background: i <= step ? c.electric : c.surface2, transition: "all .25s" }} />
+            <div key={i} style={{ width: i === step ? 20 : 7, height: 7, borderRadius: 4, background: i <= step ? c.electric : c.surface2, transition: "all .25s" }} />
           ))}
         </div>
 
-        <div key={step} className="anim-fadeUp" style={{ textAlign: "center", marginBottom: 32 }}>
-          <h1 className="ff-display" style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>{steps[step].title}</h1>
-          <p style={{ color: c.muted, fontSize: 12.5, marginBottom: 30 }}>{steps[step].subtitle}</p>
+        <div key={step} className="anim-fadeUp" style={{ textAlign: "center", marginBottom: 28 }}>
+          <h1 className="ff-display" style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>{steps[step].title}</h1>
+          <p style={{ color: c.muted, fontSize: 12.5, marginBottom: 26 }}>{steps[step].subtitle}</p>
           {steps[step].content}
         </div>
 
@@ -2327,14 +2397,15 @@ const Calendar = ({ c, completedSessions }) => {
 const Nutrition = ({ c, profile, water, setWater }) => {
   const [weight, setWeight] = useState(profile.weight);
   const [height, setHeight] = useState(profile.height);
-  const [age, setAge] = useState(28);
+  const [age, setAge] = useState(profile.age || 28);
   const [activity, setActivity] = useState(1.55);
-  const [gender, setGender] = useState("h");
+  const [gender, setGender] = useState(profile.gender === "femme" ? "f" : "h");
 
   const bmr = gender === "h"
     ? 10 * weight + 6.25 * height - 5 * age + 5
     : 10 * weight + 6.25 * height - 5 * age - 161;
   const tdee = Math.round(bmr * activity);
+  const supplements = getSupplementSuggestions(profile.goal);
 
   return (
     <div style={{ padding: "18px 18px 30px" }} className="anim-fadeIn">
@@ -2409,6 +2480,27 @@ const Nutrition = ({ c, profile, water, setWater }) => {
         ))}
       </div>
 
+      <SectionTitle c={c}>Compléments suggérés pour votre objectif</SectionTitle>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
+        {supplements.map((s, i) => (
+          <Card c={c} key={i} style={{ padding: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <div style={{ width: 26, height: 26, borderRadius: 8, background: "rgba(0,113,227,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Sparkles size={13} color={c.electric2} />
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>{s.name}</span>
+            </div>
+            <p style={{ fontSize: 12, color: c.muted, margin: "0 0 0 34px", lineHeight: 1.5 }}>{s.why}</p>
+          </Card>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8, background: "rgba(255,159,10,0.1)", borderRadius: 12, padding: 12, marginBottom: 20 }}>
+        <AlertTriangle size={15} color={c.warning} style={{ flexShrink: 0, marginTop: 1 }} />
+        <p style={{ fontSize: 11, color: c.muted, margin: 0, lineHeight: 1.5 }}>
+          Information générale à visée éducative, pas un avis médical personnalisé. Demandez conseil à un médecin ou un·e diététicien·ne avant de démarrer une complémentation, en particulier en cas de traitement médical, de grossesse ou d'allaitement.
+        </p>
+      </div>
+
       <SectionTitle c={c}>Idées de repas fitness</SectionTitle>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {MEALS.map((m, i) => (
@@ -2431,13 +2523,15 @@ const Nutrition = ({ c, profile, water, setWater }) => {
 /* ============================================================
    PROFILE
 ============================================================ */
-const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLogged }) => {
-  const { name, weight, height, goal, level, xp, sportLevel } = state;
+const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLogged, onAvatarChanged }) => {
+  const { name, weight, height, goal, level, xp, sportLevel, avatarUrl } = state;
   const [logs, setLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(true);
   const [showLogForm, setShowLogForm] = useState(false);
   const [logVal, setLogVal] = useState(weight);
   const [logging, setLogging] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const avatarInputRef = useRef(null);
 
   useEffect(() => {
     if (!profileId) { setLoadingLogs(false); return; }
@@ -2461,6 +2555,19 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
     setLogging(false);
   };
 
+  const handleAvatarFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file || !profileId) return;
+    setAvatarUploading(true);
+    try {
+      const url = await uploadAvatar(file, profileId);
+      await updateAvatarUrl(profileId, url);
+      onAvatarChanged(url);
+    } catch (err) { /* réessaiera */ }
+    setAvatarUploading(false);
+    if (avatarInputRef.current) avatarInputRef.current.value = "";
+  };
+
   const badgesUnlocked = BADGES.map(b => ({
     ...b,
     unlocked: (b.type === "sessions" && state.sessionsCompleted >= b.target) ||
@@ -2473,16 +2580,26 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
       <div style={{ textAlign: "center", marginBottom: 20 }}>
         <div style={{ position: "relative", width: 88, height: 88, margin: "0 auto 10px" }}>
           <Ring pct={((xp - xpForLevel(level - 1)) / (xpForLevel(level) - xpForLevel(level - 1))) * 100} size={88} stroke={5} c={c}>
-            <div style={{ width: 68, height: 68, borderRadius: "50%", background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 24 }}>
-              {name.charAt(0)}
-            </div>
+            {avatarUrl ? (
+              <div style={{ width: 68, height: 68, borderRadius: "50%", overflow: "hidden" }}>
+                <img src={avatarUrl} alt={name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              </div>
+            ) : (
+              <div style={{ width: 68, height: 68, borderRadius: "50%", background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 24 }}>
+                {name.charAt(0)}
+              </div>
+            )}
           </Ring>
-          <div style={{ position: "absolute", bottom: -2, right: -2, background: c.surface, border: `2px solid ${c.bg}`, borderRadius: 999, padding: "2px 8px", fontSize: 10.5, fontWeight: 700, color: c.electric2 }}>
-            Niv. {level}
-          </div>
+          <button onClick={() => avatarInputRef.current && avatarInputRef.current.click()} disabled={avatarUploading} style={{
+            position: "absolute", bottom: -2, right: -2, width: 30, height: 30, borderRadius: "50%", background: c.gradA,
+            border: `2.5px solid ${c.bg}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer"
+          }}>
+            <Camera size={13} color="#fff" />
+          </button>
+          <input ref={avatarInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: "none" }} />
         </div>
         <div className="ff-display" style={{ fontWeight: 700, fontSize: 18 }}>{name}</div>
-        <div style={{ fontSize: 12.5, color: c.muted }}>{sportLevel} · Objectif : {goal}</div>
+        <div style={{ fontSize: 12.5, color: c.muted }}>Niveau {level} · {sportLevel} · Objectif : {goal}</div>
         <div style={{ fontSize: 11, color: c.muted, marginTop: 4 }}>{accountEmail}</div>
       </div>
 
@@ -2491,6 +2608,7 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           {[
             { l: "Taille", v: height + " cm" }, { l: "Poids", v: weight + " kg" },
+            { l: "Âge", v: state.age ? state.age + " ans" : "—" }, { l: "Genre", v: state.gender === "femme" ? "Femme" : state.gender === "homme" ? "Homme" : "—" },
             { l: "Niveau sportif", v: sportLevel }, { l: "Objectif", v: goal },
           ].map((f, i) => (
             <div key={i}>
@@ -2499,6 +2617,12 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
             </div>
           ))}
         </div>
+        {state.injuries && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${c.border}` }}>
+            <div style={{ fontSize: 11, color: c.muted, marginBottom: 4 }}>Blessures / limitations signalées</div>
+            <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>{state.injuries}</div>
+          </div>
+        )}
       </Card>
 
       <SectionTitle c={c} action={<button onClick={() => { setLogVal(weight); setShowLogForm(!showLogForm); }} style={{ background: "none", border: "none", color: c.electric2, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 3 }}><Plus size={13} /> Enregistrer</button>}>
@@ -3091,6 +3215,7 @@ export default function App() {
     name: "Athlète", weight: 75, height: 175, goal: "Perte de poids", sportLevel: "Débutant",
     xp: 0, level: 1, streak: 0, sessionsCompleted: 0, totalMinutes: 0, calories: 0,
     status: "pending", assignedProgramId: null, customProgram: null,
+    age: null, gender: null, injuries: "", avatarUrl: null,
   });
   const saveTimer = useRef(null);
 
@@ -3103,6 +3228,8 @@ export default function App() {
       assignedProgramId: profile.assignedProgramId || null,
       customProgram: profile.customProgram || null,
       programStartAt: profile.programStartAt || null,
+      age: profile.age || null, gender: profile.gender || null, injuries: profile.injuries || "",
+      avatarUrl: profile.avatarUrl || null,
     });
     setCompletedSessions(profile.completedSessions || {});
     setWater(profile.water ?? 3);
@@ -3141,7 +3268,7 @@ export default function App() {
   const handleOnboardingComplete = async (fields) => {
     if (!profileId) throw new Error("Session introuvable, reconnectez-vous.");
     await completeOnboarding(profileId, fields);
-    setState(s => ({ ...s, weight: fields.weight, age: fields.age, trainingFrequency: fields.trainingFrequency }));
+    setState(s => ({ ...s, weight: fields.weight, height: fields.height, age: fields.age, gender: fields.gender, goal: fields.goal, trainingFrequency: fields.trainingFrequency, injuries: fields.injuries }));
     const profile = await getSessionProfile();
     if (profile) routeProfile(profile);
     else setScreen("pending");
@@ -3234,7 +3361,7 @@ export default function App() {
   } else if (tab === "nutrition") {
     content = <Nutrition c={c} profile={state} water={water} setWater={setWater} />;
   } else if (tab === "profile") {
-    content = <Profile c={c} state={state} dark={dark} setDark={setDark} accountEmail={accountEmail} profileId={profileId} onWeightLogged={(w) => setState(s => ({ ...s, weight: w }))} />;
+    content = <Profile c={c} state={state} dark={dark} setDark={setDark} accountEmail={accountEmail} profileId={profileId} onWeightLogged={(w) => setState(s => ({ ...s, weight: w }))} onAvatarChanged={(url) => setState(s => ({ ...s, avatarUrl: url }))} />;
   }
 
   return (
