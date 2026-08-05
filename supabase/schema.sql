@@ -27,6 +27,7 @@ create table if not exists public.profiles (
   custom_program jsonb,
   last_session_at timestamptz,
   program_start_at timestamptz default now(),
+  onboarded boolean not null default false,
   created_at timestamptz not null default now()
 );
 
@@ -34,6 +35,9 @@ create table if not exists public.profiles (
 -- seules pour ajouter les colonnes manquantes :
 alter table public.profiles add column if not exists last_session_at timestamptz;
 alter table public.profiles add column if not exists program_start_at timestamptz default now();
+alter table public.profiles add column if not exists onboarded boolean not null default false;
+-- Ne redemande pas l'onboarding aux comptes déjà existants avant cette mise à jour :
+update public.profiles set onboarded = true where created_at < now();
 
 alter table public.profiles enable row level security;
 

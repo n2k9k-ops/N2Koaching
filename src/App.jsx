@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import {
-  signUp, signIn, signOut, getSessionProfile, updateOwnProgress, markSessionDone,
+  signUp, signIn, signOut, getSessionProfile, updateOwnProgress, markSessionDone, completeOnboarding,
   listAllProfiles, setProfileStatus, assignLibraryProgram, assignCustomProgram,
   listTemplates, saveTemplate, deleteTemplate,
   listMessages, sendMessage, markMessagesRead,
@@ -843,7 +843,7 @@ const AuthScreen = ({ c, onAuthed }) => {
       if (mode === "signup") {
         const res = await signUp(email.trim(), password, name.trim());
         if (res && res.session) {
-          onAuthed(true);
+          onAuthed();
         } else {
           setInfo("Compte créé. Vérifiez votre email pour confirmer votre inscription, puis connectez-vous pour renseigner votre profil et suivre le statut de validation.");
           setMode("login");
@@ -851,7 +851,7 @@ const AuthScreen = ({ c, onAuthed }) => {
         }
       } else {
         await signIn(email.trim(), password);
-        onAuthed(false);
+        onAuthed();
       }
     } catch (e) {
       const msg = e && e.message ? e.message : "Une erreur est survenue.";
@@ -2863,6 +2863,7 @@ export default function App() {
 
   const routeProfile = (profile) => {
     applyProfile(profile);
+    if (!profile.onboarded) { setScreen("onboarding"); return; }
     if (profile.isAdmin) { setScreen("admin"); return; }
     if (profile.status === "approved") setScreen("app");
     else if (profile.status === "rejected") setScreen("rejected");
@@ -2880,23 +2881,23 @@ export default function App() {
     })();
   }, []);
 
-  const handleAuthed = async (isNewSignup) => {
+  const handleAuthed = async () => {
     try {
       const profile = await getSessionProfile();
-      if (!profile) return;
-      if (isNewSignup) { applyProfile(profile); setScreen("onboarding"); }
-      else routeProfile(profile);
+      if (profile) routeProfile(profile);
     } catch (e) { /* reste sur l'écran de connexion */ }
   };
 
   const handleOnboardingComplete = async (fields) => {
     setState(s => ({ ...s, ...fields }));
     if (profileId) {
-      try {
-        await updateOwnProgress(profileId, { ...state, ...fields, completedSessions, water, dark });
-      } catch (e) { /* on continue quand même, la sauvegarde périodique réessaiera */ }
+      try { await completeOnboarding(profileId, fields); } catch (e) { /* la sauvegarde périodique réessaiera pour le reste */ }
     }
-    setScreen("pending");
+    try {
+      const profile = await getSessionProfile();
+      if (profile) routeProfile(profile);
+      else setScreen("pending");
+    } catch (e) { setScreen("pending"); }
   };
 
   const handlePendingResolved = (profile) => routeProfile(profile);

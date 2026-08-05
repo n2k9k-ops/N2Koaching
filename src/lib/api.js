@@ -25,6 +25,7 @@ function rowToProfile(row) {
     customProgram: row.custom_program,
     lastSessionAt: row.last_session_at,
     programStartAt: row.program_start_at,
+    onboarded: row.onboarded,
   };
 }
 
@@ -82,6 +83,16 @@ export async function updateOwnProgress(id, fields) {
     dark: fields.dark,
   };
   const { error } = await supabase.from("profiles").update(payload).eq("id", id);
+  if (error) throw error;
+}
+
+/** Enregistre les réponses du questionnaire de bienvenue et marque le profil
+ *  comme onboardé — déclenché une seule fois, quel que soit le chemin de connexion. */
+export async function completeOnboarding(id, fields) {
+  const { error } = await supabase.from("profiles").update({
+    weight: fields.weight, height: fields.height, goal: fields.goal, sport_level: fields.sportLevel,
+    onboarded: true,
+  }).eq("id", id);
   if (error) throw error;
 }
 
