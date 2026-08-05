@@ -10,13 +10,16 @@ import {
   UserCog, MailX, Copy, Bookmark, MessageCircle, AlertTriangle, CheckCheck,
   LayoutDashboard, PlayCircle, Camera
 } from "lucide-react";
-import { jsPDF } from "jspdf";
+import { supabase } from "./lib/supabaseClient.js";
 import {
   signUp, signIn, signOut, getSessionProfile, updateOwnProgress, markSessionDone, completeOnboarding,
   listAllProfiles, setProfileStatus, assignLibraryProgram, assignCustomProgram,
   listTemplates, saveTemplate, deleteTemplate,
   listMessages, sendMessage, markMessagesRead,
   logWeight, listWeightLogs, uploadExercisePhoto,
+  sendPasswordReset, updatePassword,
+  createCheckoutSession, createBillingPortalSession,
+  uploadAvatar, updateAvatarUrl,
 } from "./lib/api.js";
 import {
   LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, BarChart, Bar, CartesianGrid
@@ -43,6 +46,18 @@ const GlobalStyle = () => (
     button:active { transform: scale(0.97); }
     input, select, textarea { font-family: inherit; }
     .app-scroll { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+    @keyframes blobFloat1 { 0%,100%{ transform: translate(0,0) scale(1);} 50%{ transform: translate(26px,34px) scale(1.08);} }
+    @keyframes blobFloat2 { 0%,100%{ transform: translate(0,0) scale(1);} 50%{ transform: translate(-22px,-30px) scale(1.06);} }
+    @keyframes blobFloat3 { 0%,100%{ transform: translate(0,0);} 50%{ transform: translate(18px,-24px);} }
+    .blob1 { animation: blobFloat1 13s ease-in-out infinite; }
+    .blob2 { animation: blobFloat2 16s ease-in-out infinite; }
+    .blob3 { animation: blobFloat3 11s ease-in-out infinite; }
+    @keyframes stepSlideIn { from { opacity:0; transform: translateX(18px);} to { opacity:1; transform: translateX(0);} }
+    .anim-stepSlide { animation: stepSlideIn .38s cubic-bezier(.22,1,.36,1) both; }
+    @keyframes burstScale { 0%{ transform: scale(0.3); opacity:0;} 60%{ transform: scale(1.12); opacity:1;} 100%{ transform: scale(1); opacity:1;} }
+    .anim-burst { animation: burstScale .5s cubic-bezier(.34,1.56,.64,1) both; }
+    @keyframes ringExpand { 0%{ transform: scale(0.6); opacity:.9;} 100%{ transform: scale(2.2); opacity:0;} }
+    .anim-ringExpand { animation: ringExpand 1s ease-out both; }
     input[type=range].premium-slider {
       -webkit-appearance: none; appearance: none; width: 100%; height: 8px; border-radius: 4px;
       background: linear-gradient(90deg, #0071E3, #42A5F5); outline: none; cursor: pointer;
@@ -536,7 +551,8 @@ function buildDaySession(program, w, dayIdx) {
 /* ============================================================
    EXPORT PDF DU PROGRAMME (jsPDF, 100% côté client)
 ============================================================ */
-function exportProgramToPDF(program) {
+async function exportProgramToPDF(program) {
+  const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const marginX = 48;
@@ -640,6 +656,20 @@ function computeCalendarHistory(completedSessions, year, month) {
   return history;
 }
 
+function computeWeeklyPoints(completedSessions) {
+  const now = new Date();
+  const offset = (now.getDay() + 6) % 7;
+  const monday = new Date(now); monday.setHours(0, 0, 0, 0); monday.setDate(now.getDate() - offset);
+  let xp = 0, sessions = 0, calories = 0, minutes = 0;
+  Object.values(completedSessions).forEach(entry => {
+    if (!entry || !entry.completedAt) return;
+    const d = new Date(entry.completedAt);
+    if (d >= monday) { xp += entry.xp || 0; sessions++; calories += entry.calories || 0; minutes += entry.minutes || 0; }
+  });
+  const daysLeft = 7 - offset - 1;
+  return { xp, sessions, calories, minutes, daysLeft: Math.max(0, daysLeft) };
+}
+
 function getSupplementSuggestions(goal) {
   const common = [
     { name: "Vitamine D", why: "Souvent déficiente, notamment en cas de faible exposition au soleil. Joue un rôle dans la santé osseuse et immunitaire." },
@@ -713,6 +743,11 @@ const MEALS = [
 /* ============================================================
    HELPERS
 ============================================================ */
+/** Passez à true une fois Stripe configuré (voir README) pour afficher
+ *  la section abonnement côté client. Reste à false par défaut pour ne
+ *  rien casser tant que le backend Stripe n'est pas branché. */
+const SUBSCRIPTION_ENABLED = false;
+
 function levelFromXp(xp) { return Math.min(100, Math.floor(xp / 500) + 1); }
 function xpForLevel(l) { return l * 500; }
 function fmtMin(m) { const h = Math.floor(m / 60); const r = m % 60; return h ? `${h}h${r ? String(r).padStart(2, "0") : ""}` : `${r} min`; }
@@ -934,8 +969,16 @@ const RewardToast = ({ reward, c, onClose }) => {
 /* ============================================================
    AUTH SCREEN — compte persistant + validation coach
 ============================================================ */
+const AnimatedBlobs = ({ c }) => (
+  <div style={{ position: "absolute", inset: 0, overflow: "hidden", zIndex: 0, pointerEvents: "none" }}>
+    <div className="blob1" style={{ position: "absolute", width: 320, height: 320, borderRadius: "50%", background: c.gradA, opacity: c.dark ? 0.28 : 0.22, filter: "blur(75px)", top: -90, left: -90 }} />
+    <div className="blob2" style={{ position: "absolute", width: 280, height: 280, borderRadius: "50%", background: c.electric2, opacity: c.dark ? 0.22 : 0.18, filter: "blur(75px)", bottom: -70, right: -70 }} />
+    <div className="blob3" style={{ position: "absolute", width: 200, height: 200, borderRadius: "50%", background: c.electric, opacity: c.dark ? 0.16 : 0.12, filter: "blur(60px)", top: "40%", right: "10%" }} />
+  </div>
+);
+
 const AuthScreen = ({ c, onAuthed }) => {
-  const [mode, setMode] = useState("login");
+  const [mode, setMode] = useState("login"); // login | signup | forgot
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -946,6 +989,18 @@ const AuthScreen = ({ c, onAuthed }) => {
 
   const submit = async () => {
     setError(""); setInfo("");
+
+    if (mode === "forgot") {
+      if (!email.trim()) { setError("Renseignez votre email."); return; }
+      setLoading(true);
+      try {
+        await sendPasswordReset(email.trim());
+        setInfo("Un email de réinitialisation a été envoyé si ce compte existe. Vérifiez votre boîte de réception.");
+      } catch (e) { setError(e && e.message ? e.message : "Une erreur est survenue."); }
+      setLoading(false);
+      return;
+    }
+
     if (!email.trim() || !password.trim() || (mode === "signup" && !name.trim())) {
       setError("Merci de remplir tous les champs."); return;
     }
@@ -977,27 +1032,38 @@ const AuthScreen = ({ c, onAuthed }) => {
   };
 
   return (
-    <div className="ff-body scrollbar-none anim-fadeIn" style={{ minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, display: "flex", flexDirection: "column", justifyContent: "center", padding: 24 }}>
-      <div style={{ maxWidth: 380, margin: "0 auto", width: "100%" }}>
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <Logo c={c} size={56} style={{ margin: "0 auto 14px" }} />
-          <h1 className="ff-display" style={{ fontSize: 22, fontWeight: 700, margin: "0 0 6px" }}>
-            {mode === "login" ? "Content de vous revoir" : "Créez votre compte"}
+    <div className="ff-body scrollbar-none anim-fadeIn" style={{ position: "relative", minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, display: "flex", flexDirection: "column", justifyContent: "center", padding: 24, overflow: "hidden" }}>
+      <AnimatedBlobs c={c} />
+      <div className="anim-fadeUp" style={{
+        position: "relative", zIndex: 1, maxWidth: 380, margin: "0 auto", width: "100%",
+        background: c.dark ? "rgba(20,22,30,0.55)" : "rgba(255,255,255,0.6)", backdropFilter: "blur(24px)",
+        border: `1px solid ${c.border}`, borderRadius: 28, padding: 28, boxShadow: c.dark ? "0 20px 60px rgba(0,0,0,0.4)" : "0 20px 60px rgba(0,0,0,0.08)"
+      }}>
+        <div style={{ textAlign: "center", marginBottom: 26 }}>
+          <Logo c={c} size={54} style={{ margin: "0 auto 14px" }} />
+          <h1 className="ff-display" style={{ fontSize: 21, fontWeight: 700, margin: "0 0 6px" }}>
+            {mode === "login" ? "Content de vous revoir" : mode === "signup" ? "Créez votre compte" : "Mot de passe oublié"}
           </h1>
-          <p style={{ color: c.muted, fontSize: 13, margin: 0 }}>
-            {mode === "login" ? "Connectez-vous pour retrouver votre coaching." : "Votre inscription sera validée par votre coach avant l'accès complet."}
+          <p style={{ color: c.muted, fontSize: 12.5, margin: 0 }}>
+            {mode === "login" ? "Connectez-vous pour retrouver votre coaching." : mode === "signup" ? "Votre inscription sera validée par votre coach avant l'accès complet." : "Recevez un lien pour réinitialiser votre mot de passe."}
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 20, background: c.surface2, padding: 4, borderRadius: 12 }}>
-          {[{ id: "login", l: "Connexion", icon: LogIn }, { id: "signup", l: "Créer un compte", icon: UserPlus }].map(t => (
-            <button key={t.id} onClick={() => { setMode(t.id); setError(""); setInfo(""); }} style={{
-              flex: 1, padding: "10px 0", borderRadius: 9, border: "none", cursor: "pointer",
-              background: mode === t.id ? c.surface : "transparent", color: mode === t.id ? c.text : c.muted,
-              fontWeight: 700, fontSize: 12.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 6
-            }}><t.icon size={14} /> {t.l}</button>
-          ))}
-        </div>
+        {mode !== "forgot" && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 22, background: c.surface2, padding: 4, borderRadius: 12, position: "relative" }}>
+            <div style={{
+              position: "absolute", top: 4, bottom: 4, width: "calc(50% - 4px)", borderRadius: 9, background: c.gradA,
+              transform: mode === "signup" ? "translateX(calc(100% + 8px))" : "translateX(0)", transition: "transform .28s cubic-bezier(.22,1,.36,1)"
+            }} />
+            {[{ id: "login", l: "Connexion", icon: LogIn }, { id: "signup", l: "Créer un compte", icon: UserPlus }].map(t => (
+              <button key={t.id} onClick={() => { setMode(t.id); setError(""); setInfo(""); }} style={{
+                flex: 1, padding: "10px 0", borderRadius: 9, border: "none", cursor: "pointer", position: "relative", zIndex: 1,
+                background: "transparent", color: mode === t.id ? "#fff" : c.muted,
+                fontWeight: 700, fontSize: 12.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "color .2s"
+              }}><t.icon size={14} /> {t.l}</button>
+            ))}
+          </div>
+        )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {mode === "signup" && (
@@ -1013,23 +1079,36 @@ const AuthScreen = ({ c, onAuthed }) => {
               <input style={{ ...inputStyle(c), paddingLeft: 38 }} value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" type="email" autoComplete="email" />
             </div>
           </div>
-          <div>
-            <div style={labelStyle(c)}>Mot de passe</div>
-            <div style={{ position: "relative" }}>
-              <KeyRound size={15} color={c.muted} style={{ position: "absolute", left: 13, top: 14 }} />
-              <input style={{ ...inputStyle(c), paddingLeft: 38, paddingRight: 40 }} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" type={showPw ? "text" : "password"} autoComplete={mode === "login" ? "current-password" : "new-password"} />
-              <button onClick={() => setShowPw(!showPw)} style={{ position: "absolute", right: 10, top: 10, background: "none", border: "none", cursor: "pointer", color: c.muted }}>
-                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
+          {mode !== "forgot" && (
+            <div>
+              <div style={labelStyle(c)}>Mot de passe</div>
+              <div style={{ position: "relative" }}>
+                <KeyRound size={15} color={c.muted} style={{ position: "absolute", left: 13, top: 14 }} />
+                <input style={{ ...inputStyle(c), paddingLeft: 38, paddingRight: 40 }} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" type={showPw ? "text" : "password"} autoComplete={mode === "login" ? "current-password" : "new-password"} />
+                <button onClick={() => setShowPw(!showPw)} style={{ position: "absolute", right: 10, top: 10, background: "none", border: "none", cursor: "pointer", color: c.muted }}>
+                  {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {mode === "login" && (
+                <button onClick={() => { setMode("forgot"); setError(""); setInfo(""); }} style={{ background: "none", border: "none", color: c.electric2, fontSize: 11.5, cursor: "pointer", marginTop: 8, padding: 0 }}>
+                  Mot de passe oublié ?
+                </button>
+              )}
             </div>
-          </div>
+          )}
 
-          {error && <div style={{ fontSize: 12, color: c.danger, background: "rgba(255,59,48,0.1)", padding: "10px 12px", borderRadius: 10 }}>{error}</div>}
-          {info && <div style={{ fontSize: 12, color: c.success, background: "rgba(48,209,88,0.1)", padding: "10px 12px", borderRadius: 10 }}>{info}</div>}
+          {error && <div className="anim-fadeIn" style={{ fontSize: 12, color: c.danger, background: "rgba(255,59,48,0.1)", padding: "10px 12px", borderRadius: 10 }}>{error}</div>}
+          {info && <div className="anim-fadeIn" style={{ fontSize: 12, color: c.success, background: "rgba(48,209,88,0.1)", padding: "10px 12px", borderRadius: 10 }}>{info}</div>}
 
-          <PrimaryBtn c={c} full onClick={submit} disabled={loading} icon={mode === "login" ? LogIn : UserPlus} style={{ marginTop: 6 }}>
-            {loading ? "Chargement..." : mode === "login" ? "Se connecter" : "Créer mon compte"}
+          <PrimaryBtn c={c} full onClick={submit} disabled={loading} icon={mode === "login" ? LogIn : mode === "signup" ? UserPlus : Mail} style={{ marginTop: 6 }}>
+            {loading ? "Chargement..." : mode === "login" ? "Se connecter" : mode === "signup" ? "Créer mon compte" : "Envoyer le lien"}
           </PrimaryBtn>
+
+          {mode === "forgot" && (
+            <button onClick={() => { setMode("login"); setError(""); setInfo(""); }} style={{ background: "none", border: "none", color: c.muted, fontSize: 12, cursor: "pointer", textAlign: "center" }}>
+              ← Retour à la connexion
+            </button>
+          )}
         </div>
 
         <p style={{ fontSize: 10.5, color: c.muted, textAlign: "center", marginTop: 20, lineHeight: 1.5 }}>
@@ -1139,21 +1218,46 @@ const Onboarding = ({ c, name, onComplete }) => {
     },
   ];
   const isLast = step === steps.length - 1;
+  const [celebrating, setCelebrating] = useState(false);
 
-  const next = async () => {
+  const next = () => {
     if (!isLast) { setStep(s => s + 1); return; }
-    setSaving(true); setError("");
-    try {
-      await onComplete({ weight, height, age, gender, goal, trainingFrequency: frequency, injuries: injuries.trim() });
-    } catch (e) {
-      setError(e && e.message ? e.message : "Une erreur est survenue, réessayez.");
-      setSaving(false);
-    }
+    setError("");
+    setCelebrating(true);
+    setTimeout(async () => {
+      setSaving(true);
+      try {
+        await onComplete({ weight, height, age, gender, goal, trainingFrequency: frequency, injuries: injuries.trim() });
+      } catch (e) {
+        setCelebrating(false);
+        setSaving(false);
+        setError(e && e.message ? e.message : "Une erreur est survenue, réessayez.");
+      }
+    }, 750);
   };
 
+  if (celebrating) {
+    return (
+      <div className="ff-body anim-fadeIn" style={{ position: "relative", minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+        <AnimatedBlobs c={c} />
+        <div style={{ position: "relative", zIndex: 1, textAlign: "center" }}>
+          <div style={{ position: "relative", width: 100, height: 100, margin: "0 auto 22px" }}>
+            <div className="anim-ringExpand" style={{ position: "absolute", inset: 0, borderRadius: "50%", border: `3px solid ${c.electric2}` }} />
+            <div className="anim-burst" style={{ width: 100, height: 100, borderRadius: "50%", background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 12px 32px rgba(0,113,227,0.4)" }}>
+              <Check size={46} color="#fff" strokeWidth={3} />
+            </div>
+          </div>
+          <h2 className="ff-display anim-fadeUp" style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Profil créé !</h2>
+          <p className="anim-fadeUp" style={{ color: c.muted, fontSize: 13 }}>Un instant, on vous emmène vers votre espace...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="ff-body scrollbar-none anim-fadeIn" style={{ minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, padding: 24, display: "flex", flexDirection: "column", justifyContent: "center", overflowY: "auto" }}>
-      <div style={{ maxWidth: 380, margin: "0 auto", width: "100%" }}>
+    <div className="ff-body scrollbar-none anim-fadeIn" style={{ position: "relative", minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, padding: 24, display: "flex", flexDirection: "column", justifyContent: "center", overflowY: "auto", overflowX: "hidden" }}>
+      <AnimatedBlobs c={c} />
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 380, margin: "0 auto", width: "100%" }}>
         <Logo c={c} size={44} style={{ margin: "0 auto 14px" }} />
         {step === 0 && <p style={{ color: c.muted, fontSize: 13, textAlign: "center", marginBottom: 4 }}>Bienvenue {name} 👋</p>}
 
@@ -1163,7 +1267,7 @@ const Onboarding = ({ c, name, onComplete }) => {
           ))}
         </div>
 
-        <div key={step} className="anim-fadeUp" style={{ textAlign: "center", marginBottom: 28 }}>
+        <div key={step} className="anim-stepSlide" style={{ textAlign: "center", marginBottom: 28 }}>
           <h1 className="ff-display" style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>{steps[step].title}</h1>
           <p style={{ color: c.muted, fontSize: 12.5, marginBottom: 26 }}>{steps[step].subtitle}</p>
           {steps[step].content}
@@ -1227,6 +1331,46 @@ const RejectedScreen = ({ c, onLogout }) => (
   </div>
 );
 
+const ResetPasswordScreen = ({ c, onDone }) => {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    setError("");
+    if (pw.length < 6) { setError("Le mot de passe doit contenir au moins 6 caractères."); return; }
+    if (pw !== pw2) { setError("Les deux mots de passe ne correspondent pas."); return; }
+    setSaving(true);
+    try {
+      await updatePassword(pw);
+      onDone();
+    } catch (e) { setError(e && e.message ? e.message : "Une erreur est survenue."); setSaving(false); }
+  };
+
+  return (
+    <div className="ff-body anim-fadeIn" style={{ minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, display: "flex", flexDirection: "column", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 360, margin: "0 auto", width: "100%" }}>
+        <Logo c={c} size={48} style={{ margin: "0 auto 16px" }} />
+        <h1 className="ff-display" style={{ fontSize: 20, fontWeight: 700, textAlign: "center", marginBottom: 6 }}>Nouveau mot de passe</h1>
+        <p style={{ color: c.muted, fontSize: 12.5, textAlign: "center", marginBottom: 24 }}>Choisissez un nouveau mot de passe pour votre compte.</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ position: "relative" }}>
+            <input style={{ ...inputStyle(c), paddingRight: 40 }} type={showPw ? "text" : "password"} value={pw} onChange={e => setPw(e.target.value)} placeholder="Nouveau mot de passe" />
+            <button onClick={() => setShowPw(!showPw)} style={{ position: "absolute", right: 10, top: 10, background: "none", border: "none", cursor: "pointer", color: c.muted }}>
+              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <input style={inputStyle(c)} type={showPw ? "text" : "password"} value={pw2} onChange={e => setPw2(e.target.value)} placeholder="Confirmer le mot de passe" />
+          {error && <div style={{ fontSize: 12, color: c.danger, background: "rgba(255,59,48,0.1)", padding: "10px 12px", borderRadius: 10 }}>{error}</div>}
+          <PrimaryBtn c={c} full onClick={submit} disabled={saving} icon={Check}>{saving ? "Enregistrement..." : "Valider"}</PrimaryBtn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ============================================================
    LANDING PAGE
 ============================================================ */
@@ -1249,8 +1393,11 @@ const Landing = ({ c, onStart, dark, setDark }) => {
   }, []);
 
   return (
-    <div className="ff-body scrollbar-none app-scroll" style={{ minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, overflowY: "auto" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 20px 0" }}>
+    <div className="ff-body scrollbar-none app-scroll" style={{ position: "relative", minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, overflowY: "auto", overflowX: "hidden" }}>
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 520, overflow: "hidden", zIndex: 0 }}>
+        <AnimatedBlobs c={c} />
+      </div>
+      <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 20px 0" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <Logo c={c} size={32} />
           <span className="ff-display" style={{ fontWeight: 700, fontSize: 18 }}>N2Koaching</span>
@@ -1258,11 +1405,11 @@ const Landing = ({ c, onStart, dark, setDark }) => {
         <IconBtn icon={dark ? Sun : Moon} c={c} onClick={() => setDark(!dark)} />
       </div>
 
-      <div style={{ padding: "40px 20px 10px", textAlign: "center" }} className="anim-fadeUp">
+      <div style={{ position: "relative", zIndex: 1, padding: "40px 20px 10px", textAlign: "center" }} className="anim-fadeUp">
         <div style={{ display: "inline-block", marginBottom: 18 }}>
           <Pill c={c} tone="electric">● Coaching réel : inscription validée par un coach</Pill>
         </div>
-        <h1 className="ff-display" style={{ fontSize: 40, lineHeight: 1.08, fontWeight: 700, margin: "0 0 14px" }}>
+        <h1 className="ff-display" style={{ fontSize: 42, lineHeight: 1.06, fontWeight: 700, margin: "0 0 14px", letterSpacing: -0.5 }}>
           Votre meilleure <br />
           <span style={{ background: c.gradA, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
             version, chaque jour.
@@ -1279,15 +1426,17 @@ const Landing = ({ c, onStart, dark, setDark }) => {
         </div>
       </div>
 
-      <div className="anim-fadeUp" style={{ padding: "34px 20px", animationDelay: ".1s" }}>
+      <div className="anim-fadeUp" style={{ position: "relative", zIndex: 1, padding: "34px 20px", animationDelay: ".1s" }}>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
           {[
             { icon: Flame, v: statVals.a.toLocaleString("fr-FR"), l: "Séances réalisées" },
             { icon: TrendingUp, v: statVals.b.toLocaleString("fr-FR"), l: "Athlètes actifs" },
             { icon: Heart, v: statVals.d + "%", l: "Taux de satisfaction" },
           ].map((s, i) => (
-            <Card key={i} c={c} style={{ width: 108, textAlign: "center", padding: "16px 8px" }}>
-              <s.icon size={18} color={c.electric2} style={{ marginBottom: 6 }} />
+            <Card key={i} c={c} style={{ width: 108, textAlign: "center", padding: "18px 8px" }}>
+              <div style={{ width: 32, height: 32, borderRadius: 10, background: "rgba(0,113,227,0.15)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 8px" }}>
+                <s.icon size={16} color={c.electric2} />
+              </div>
               <div className="ff-mono" style={{ fontWeight: 700, fontSize: 17 }}>{s.v}</div>
               <div style={{ fontSize: 10.5, color: c.muted, marginTop: 2 }}>{s.l}</div>
             </Card>
@@ -1488,6 +1637,7 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completed
   const today = assigned ? computeTodaySession(state) : null;
   const dailyStats = computeDailyStats(completedSessions);
   const weeklyActivity = computeWeeklyActivity(completedSessions);
+  const weeklyPoints = computeWeeklyPoints(completedSessions);
   const featured = [PROGRAMS.find(p => p.id === "ppl"), PROGRAMS.find(p => p.id === "upper-lower"), PROGRAMS.find(p => p.id === "maison")];
 
   return (
@@ -1602,6 +1752,31 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completed
           </div>
         </>
       )}
+
+      <Card c={c} style={{ marginBottom: 20, background: c.gradB, border: "none", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: -30, right: -30, width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+          <Sparkles size={14} color="#fff" />
+          <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: 0.5 }}>Points de la semaine</span>
+        </div>
+        <div className="ff-mono" style={{ fontSize: 42, fontWeight: 700, color: "#fff", lineHeight: 1.1, marginBottom: 12 }}>
+          {weeklyPoints.xp.toLocaleString("fr-FR")} <span style={{ fontSize: 16, fontWeight: 700, opacity: 0.75 }}>XP</span>
+        </div>
+        <div style={{ display: "flex", gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{weeklyPoints.sessions}</div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)" }}>séances</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{fmtMin(weeklyPoints.minutes)}</div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)" }}>temps total</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{weeklyPoints.calories.toLocaleString("fr-FR")}</div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)" }}>kcal</div>
+          </div>
+        </div>
+      </Card>
 
       <SectionTitle c={c}>Défis du jour</SectionTitle>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
@@ -2523,6 +2698,45 @@ const Nutrition = ({ c, profile, water, setWater }) => {
 /* ============================================================
    PROFILE
 ============================================================ */
+const SubscriptionSection = ({ c, status }) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const active = status === "active";
+
+  const goCheckout = async () => {
+    setLoading(true); setError("");
+    try {
+      const url = await createCheckoutSession();
+      window.location.href = url;
+    } catch (e) { setError(e && e.message ? e.message : "Impossible de démarrer le paiement."); setLoading(false); }
+  };
+  const goPortal = async () => {
+    setLoading(true); setError("");
+    try {
+      const url = await createBillingPortalSession();
+      window.location.href = url;
+    } catch (e) { setError(e && e.message ? e.message : "Impossible d'ouvrir le portail."); setLoading(false); }
+  };
+
+  return (
+    <>
+      <SectionTitle c={c}>Abonnement</SectionTitle>
+      <Card c={c} style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <Pill c={c} tone={active ? "success" : "warning"}>{active ? "Actif" : status === "past_due" ? "Paiement en retard" : status === "canceled" ? "Résilié" : "Inactif"}</Pill>
+        </div>
+        {error && <div style={{ fontSize: 12, color: c.danger, background: "rgba(255,59,48,0.1)", padding: "10px 12px", borderRadius: 10, marginBottom: 10 }}>{error}</div>}
+        {active ? (
+          <SecondaryBtn c={c} full icon={UserCog} onClick={goPortal} disabled={loading}>{loading ? "Ouverture..." : "Gérer mon abonnement"}</SecondaryBtn>
+        ) : (
+          <PrimaryBtn c={c} full icon={Zap} onClick={goCheckout} disabled={loading}>{loading ? "Redirection..." : "S'abonner"}</PrimaryBtn>
+        )}
+      </Card>
+    </>
+  );
+};
+
+
 const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLogged, onAvatarChanged }) => {
   const { name, weight, height, goal, level, xp, sportLevel, avatarUrl } = state;
   const [logs, setLogs] = useState([]);
@@ -2668,6 +2882,8 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
           </div>
         ))}
       </div>
+
+      {SUBSCRIPTION_ENABLED && <SubscriptionSection c={c} status={state.subscriptionStatus} />}
 
       <SectionTitle c={c}>Préférences</SectionTitle>
       <Card c={c} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -3230,6 +3446,7 @@ export default function App() {
       programStartAt: profile.programStartAt || null,
       age: profile.age || null, gender: profile.gender || null, injuries: profile.injuries || "",
       avatarUrl: profile.avatarUrl || null,
+      subscriptionStatus: profile.subscriptionStatus || "inactive",
     });
     setCompletedSessions(profile.completedSessions || {});
     setWater(profile.water ?? 3);
@@ -3256,6 +3473,11 @@ export default function App() {
         else setScreen("landing");
       } catch (e) { setScreen("landing"); }
     })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") setScreen("resetPassword");
+    });
+    return () => sub.subscription.unsubscribe();
   }, []);
 
   const handleAuthed = async () => {
@@ -3337,6 +3559,9 @@ export default function App() {
   }
   if (screen === "rejected") {
     return <><GlobalStyle /><RejectedScreen c={c} onLogout={logout} /></>;
+  }
+  if (screen === "resetPassword") {
+    return <><GlobalStyle /><ResetPasswordScreen c={c} onDone={() => { setReward({ title: "Mot de passe mis à jour", desc: "Vous pouvez vous reconnecter normalement." }); handleAuthed(); }} /></>;
   }
 
   let content;

@@ -30,5 +30,18 @@ export default defineConfig({
     }),
   ],
   server: { port: 5173 },
-  build: { outDir: "dist" },
+  build: {
+    outDir: "dist",
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "react-vendor": ["react", "react-dom"],
+          "charts-vendor": ["recharts"],
+          "icons-vendor": ["lucide-react"],
+          "supabase-vendor": ["@supabase/supabase-js"],
+        },
+      },
+    },
+  },
 });

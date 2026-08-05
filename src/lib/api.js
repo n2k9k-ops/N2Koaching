@@ -31,6 +31,7 @@ function rowToProfile(row) {
     gender: row.gender,
     injuries: row.injuries,
     avatarUrl: row.avatar_url,
+    subscriptionStatus: row.subscription_status,
   };
 }
 
@@ -52,6 +53,34 @@ export async function signIn(email, password) {
 
 export async function signOut() {
   await supabase.auth.signOut();
+}
+
+export async function sendPasswordReset(email) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin,
+  });
+  if (error) throw error;
+}
+
+export async function updatePassword(newPassword) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw error;
+}
+
+export async function signInWithGoogle() {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: window.location.origin },
+  });
+  if (error) throw error;
+}
+
+export async function signInWithApple() {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "apple",
+    options: { redirectTo: window.location.origin },
+  });
+  if (error) throw error;
 }
 
 /** Retourne le profil de l'utilisateur actuellement connecté (ou null). */
@@ -210,6 +239,27 @@ export async function uploadAvatar(file, userId) {
 export async function updateAvatarUrl(id, url) {
   const { error } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", id);
   if (error) throw error;
+}
+
+/* ---------------- Abonnement Stripe ---------------- */
+
+/** Appelle l'Edge Function `create-checkout-session` et retourne l'URL Stripe
+ *  Checkout vers laquelle rediriger l'utilisateur. */
+export async function createCheckoutSession() {
+  const { data, error } = await supabase.functions.invoke("create-checkout-session", {
+    body: { returnUrl: window.location.origin },
+  });
+  if (error) throw error;
+  return data.url;
+}
+
+/** Ouvre le portail client Stripe (gérer / résilier l'abonnement). */
+export async function createBillingPortalSession() {
+  const { data, error } = await supabase.functions.invoke("create-billing-portal-session", {
+    body: { returnUrl: window.location.origin },
+  });
+  if (error) throw error;
+  return data.url;
 }
 
 /* ---------------- Photos de référence par exercice ---------------- */

@@ -33,6 +33,9 @@ create table if not exists public.profiles (
   gender text,
   injuries text,
   avatar_url text,
+  stripe_customer_id text,
+  subscription_id text,
+  subscription_status text not null default 'inactive',
   created_at timestamptz not null default now()
 );
 
@@ -46,6 +49,9 @@ alter table public.profiles add column if not exists training_frequency integer;
 alter table public.profiles add column if not exists gender text;
 alter table public.profiles add column if not exists injuries text;
 alter table public.profiles add column if not exists avatar_url text;
+alter table public.profiles add column if not exists stripe_customer_id text;
+alter table public.profiles add column if not exists subscription_id text;
+alter table public.profiles add column if not exists subscription_status text not null default 'inactive';
 -- Ne redemande pas l'onboarding aux comptes déjà existants avant cette mise à jour :
 update public.profiles set onboarded = true where created_at < now();
 
@@ -95,6 +101,9 @@ begin
     new.assigned_program_id := old.assigned_program_id;
     new.custom_program := old.custom_program;
     new.program_start_at := old.program_start_at;
+    new.stripe_customer_id := old.stripe_customer_id;
+    new.subscription_id := old.subscription_id;
+    new.subscription_status := old.subscription_status;
   end if;
   return new;
 end;

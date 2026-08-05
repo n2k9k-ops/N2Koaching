@@ -136,3 +136,70 @@ Un lien YouTube optionnel peut être attaché à chaque exercice quand tu constr
 - Le calculateur de calories dans Nutrition utilise maintenant l'âge et le genre réels du profil comme valeurs par défaut (au lieu de 28 ans / homme codés en dur).
 
 ⚠️ Relance `supabase/schema.sql` en entier (ajoute `gender`, `injuries`, `avatar_url` sur `profiles`, et le bucket `avatars`).
+
+## Mot de passe oublié, connexion Google/Apple, optimisation, abonnement Stripe
+
+### Mot de passe oublié
+Fonctionne directement, rien à configurer côté Supabase (utilise le SMTP déjà branché). Lien "Mot de passe oublié ?" sur l'écran de connexion.
+
+### Connexion Google / Apple
+Le code est prêt (boutons + appels Supabase), mais **il faut activer les providers côté Supabase** avec tes propres identifiants OAuth :
+
+**Google :**
+1. [Google Cloud Console](https://console.cloud.google.com) → crée un projet → **APIs & Services → Credentials → Create OAuth Client ID** (type "Web application").
+2. Ajoute comme *Authorized redirect URI* : `https://<PROJECT_REF>.supabase.co/auth/v1/callback` (trouvable dans Supabase → Authentication → Providers → Google).
+3. Copie le Client ID et le Client Secret dans Supabase → Authentication → Providers → **Google** → active-le et colle-les.
+
+**Apple :** nécessite un compte Apple Developer payant (99$/an) — plus lourd à configurer. Étapes détaillées : [doc officielle Supabase](https://supabase.com/docs/guides/auth/social-login/auth-apple). Si tu ne veux pas t'en occuper tout de suite, le bouton Apple peut simplement être retiré de `AuthScreen` dans `src/App.jsx`.
+
+### Optimisation
+- `jsPDF` (~230 Ko) n'est plus chargé au démarrage — seulement quand quelqu'un clique "Exporter en PDF".
+- Le build sépare maintenant React, les graphiques (recharts), les icônes et Supabase en chunks distincts, mis en cache indépendamment par le navigateur (un futur déploiement qui ne touche pas ces libs n'oblige pas à retélécharger ces morceaux).
+
+### Abonnement Stripe
+
+⚠️ **Fonctionnalité désactivée par défaut** (`SUBSCRIPTION_ENABLED = false` dans `src/App.jsx`) tant que tu n'as pas terminé la config ci-dessous — ça ne casse rien de ton app actuelle.
+
+**1. Crée ton produit dans Stripe**
+1. [Dashboard Stripe](https://dashboard.stripe.com) → **Produits** → crée un produit avec un prix récurrent (ex: 29€/mois) → note l'ID du prix (`price_...`).
+2. Reste en **mode Test** pour vérifier que tout fonctionne avant de passer en mode Live.
+
+**2. Installe la CLI Supabase et déploie les 3 fonctions**
+```bash
+npm install -g supabase
+supabase login
+supabase link --project-ref <TON_PROJECT_REF>
+supabase functions deploy create-checkout-session
+supabase functions deploy create-billing-portal-session
+supabase functions deploy stripe-webhook --no-verify-jwt
+```
+(`--no-verify-jwt` sur le webhook uniquement : Stripe ne peut pas envoyer de JWT Supabase, la vérification se fait via la signature Stripe à la place.)
+
+**3. Configure les secrets des fonctions**
+```bash
+supabase secrets set STRIPE_SECRET_KEY=sk_test_...
+supabase secrets set STRIPE_PRICE_ID=price_...
+supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
+supabase secrets set APP_URL=https://ton-app.vercel.app
+```
+(`STRIPE_WEBHOOK_SECRET` s'obtient après l'étape 4 — reviens le configurer ensuite.)
+
+**4. Branche le webhook Stripe**
+1. Stripe Dashboard → **Développeurs → Webhooks → Ajouter un point de terminaison**.
+2. URL : `https://<PROJECT_REF>.supabase.co/functions/v1/stripe-webhook`
+3. Événements à écouter : `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`.
+4. Copie le "Signing secret" (`whsec_...`) → `supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...`
+
+**5. Relance le SQL** (ajoute `stripe_customer_id`, `subscription_id`, `subscription_status` sur `profiles`, protégés du bidouillage client par le trigger existant).
+
+**6. Active la fonctionnalité**
+Dans `src/App.jsx`, passe `SUBSCRIPTION_ENABLED` à `true`. Une section "Abonnement" apparaît alors dans l'onglet Profil, avec bouton "S'abonner" (Stripe Checkout) ou "Gérer mon abonnement" (portail client Stripe) selon le statut.
+
+**7. Teste en mode Test Stripe** avant de basculer les clés en mode Live — utilise une carte de test Stripe (`4242 4242 4242 4242`, n'importe quelle date future, n'importe quel CVC).
+
+## Redesign connexion/vitrine, animations d'onboarding, points hebdo
+
+- **Écran de connexion redesigné** : fond avec des formes dégradées animées (flottement lent), carte flottante en verre dépoli (glassmorphism), sélecteur d'onglet Connexion/Créer un compte avec indicateur qui glisse. Boutons Google/Apple retirés (config trop lourde pour l'instant — le code reste dans `src/lib/api.js` si tu changes d'avis un jour, juste plus branché dans l'interface).
+- **Page vitrine** : même fond animé derrière le hero, cartes de statistiques avec icônes dans des cercles dégradés, typographie plus impactante.
+- **Onboarding** : transition en glissement entre chaque étape (au lieu d'un simple fondu), et un écran de célébration animé ("Profil créé !" avec cercle qui pulse et anneau qui s'expand) avant d'arriver sur l'espace d'attente.
+- **Points de la semaine** : nouvelle carte en haut du tableau de bord, style "résumé hebdomadaire" — XP gagné cette semaine, nombre de séances, temps total, calories, calculés à partir des vraies séances loggées (se réinitialise chaque lundi).
