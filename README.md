@@ -203,3 +203,35 @@ Dans `src/App.jsx`, passe `SUBSCRIPTION_ENABLED` à `true`. Une section "Abonnem
 - **Page vitrine** : même fond animé derrière le hero, cartes de statistiques avec icônes dans des cercles dégradés, typographie plus impactante.
 - **Onboarding** : transition en glissement entre chaque étape (au lieu d'un simple fondu), et un écran de célébration animé ("Profil créé !" avec cercle qui pulse et anneau qui s'expand) avant d'arriver sur l'espace d'attente.
 - **Points de la semaine** : nouvelle carte en haut du tableau de bord, style "résumé hebdomadaire" — XP gagné cette semaine, nombre de séances, temps total, calories, calculés à partir des vraies séances loggées (se réinitialise chaque lundi).
+
+## Rest skippable, "dernière fois", revoir ses perfs
+
+⚠️ Relance `supabase/schema.sql` en entier (ajoute la table `exercise_logs` qui enregistre chaque série loggée — c'est ce qui permet les deux fonctionnalités suivantes).
+
+- **Repos "passable"** : en mode focus, un bouton "Passer le repos" apparaît pendant le décompte — plus obligatoire.
+- **"Dernière fois"** : en démarrant un exercice, l'app va chercher la dernière fois où il a été fait (toutes séances confondues) et affiche "Dernière fois : 40kg × 10" — les champs de saisie sont même pré-remplis en placeholder avec ces valeurs.
+- **Revoir ses performances** : dans le détail d'un programme, une séance déjà terminée apparaît en **vert** avec une coche. Cliquer dessus n'ouvre plus la séance interactive — ça ouvre un écran en lecture seule listant, exercice par exercice, exactement ce qui a été loggé (charge × reps par série).
+
+## Exercices personnalisés rejoignent la bibliothèque
+
+⚠️ Relance `supabase/schema.sql` en entier (ajoute la table `custom_exercises`).
+
+Quand tu crées un exercice personnalisé dans le constructeur de séance, il est maintenant **sauvegardé dans une bibliothèque partagée** — il apparaît ensuite dans les résultats de recherche pour **tous tes futurs clients**, avec un badge "Perso" pour le distinguer des exercices intégrés à l'app. Avant cette mise à jour, l'exercice n'existait que dans la séance où tu l'avais créé.
+
+## Temps réel chronométré (au lieu d'une estimation)
+
+Aucun changement SQL cette fois.
+
+Avant : le "X min" affiché après une séance était toujours la même estimation calculée à l'avance (5 min échauffement + ~1min15 par série + 4 min retour au calme), sans lien avec le temps réellement passé — d'où l'incohérence, surtout depuis que le repos est skippable.
+
+Maintenant : le chrono démarre réellement quand tu cliques "Démarrer les exercices", et le temps affiché après coup (historique, calendrier, points de la semaine, total cumulé) est le **vrai temps écoulé**. L'estimation reste affichée, mais seulement *avant* de commencer une séance, clairement marquée "estimé" pour ne pas donner une fausse impression de précision.
+
+## Révoquer l'accès d'un client
+
+⚠️ Relance `supabase/schema.sql` en entier (ajoute la colonne `revoke_reason` et étend les statuts possibles à `revoked`).
+
+Sur la fiche d'un client actif, un lien discret **"Révoquer l'accès"** ouvre un petit formulaire avec un motif optionnel. Une fois révoqué :
+- Le client ne peut plus se connecter — il tombe sur un écran **"Accès révoqué"** affichant le motif que tu as choisi.
+- Le compte reste visible dans l'onglet Clients avec un badge rouge "Révoqué", et un bouton **"Réactiver l'accès"** permet d'annuler la révocation à tout moment.
+
+**Sur la suppression complète (pas seulement la révocation)** : je n'ai pas ajouté de bouton "supprimer" qui efface totalement le compte et ses données. Le faire proprement demanderait une Edge Function supplémentaire (comme pour Stripe) à déployer via la CLI Supabase — je n'ai pas voulu te l'imposer sans demander vu ta réaction sur Stripe. Si tu veux supprimer un compte définitivement dès maintenant, sans code supplémentaire : Supabase Dashboard → **Authentication → Users** → trouve l'utilisateur → **Delete user**. Ça supprime le compte et, grâce à la référence `on delete cascade`, toutes ses données associées (profil, séries loggées, messages, etc.) avec lui.

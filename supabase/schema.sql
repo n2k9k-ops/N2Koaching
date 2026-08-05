@@ -21,7 +21,8 @@ create table if not exists public.profiles (
   completed_sessions jsonb not null default '{}'::jsonb,
   water integer not null default 2,
   dark boolean not null default true,
-  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'revoked')),
+  revoke_reason text,
   is_admin boolean not null default false,
   assigned_program_id text,
   custom_program jsonb,
@@ -44,6 +45,9 @@ create table if not exists public.profiles (
 alter table public.profiles add column if not exists last_session_at timestamptz;
 alter table public.profiles add column if not exists program_start_at timestamptz default now();
 alter table public.profiles add column if not exists onboarded boolean not null default false;
+alter table public.profiles add column if not exists revoke_reason text;
+alter table public.profiles drop constraint if exists profiles_status_check;
+alter table public.profiles add constraint profiles_status_check check (status in ('pending', 'approved', 'rejected', 'revoked'));
 alter table public.profiles add column if not exists age integer;
 alter table public.profiles add column if not exists training_frequency integer;
 alter table public.profiles add column if not exists gender text;
@@ -104,6 +108,7 @@ begin
     new.stripe_customer_id := old.stripe_customer_id;
     new.subscription_id := old.subscription_id;
     new.subscription_status := old.subscription_status;
+    new.revoke_reason := old.revoke_reason;
   end if;
   return new;
 end;
@@ -241,6 +246,61 @@ create policy "avatars_own_update" on storage.objects
 drop policy if exists "avatars_own_delete" on storage.objects;
 create policy "avatars_own_delete" on storage.objects
   for delete using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- ============================================================
+-- HISTORIQUE DES SÉRIES LOGGÉES (perf "dernière fois" + revue de séance)
+-- ============================================================
+create table if not exists public.exercise_logs (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  session_key text not null,
+  exercise_name text not null,
+  set_index integer not null,
+  weight numeric,
+  reps text,
+  logged_at timestamptz not null default now()
+);
+
+alter table public.exercise_logs enable row level security;
+
+drop policy if exists "exercise_logs_select" on public.exercise_logs;
+create policy "exercise_logs_select" on public.exercise_logs
+  for select using (profile_id = auth.uid() or public.is_admin(auth.uid()));
+
+drop policy if exists "exercise_logs_insert" on public.exercise_logs;
+create policy "exercise_logs_insert" on public.exercise_logs
+  for insert with check (profile_id = auth.uid());
+
+create index if not exists exercise_logs_name_idx on public.exercise_logs (profile_id, exercise_name, logged_at desc);
+create index if not exists exercise_logs_session_idx on public.exercise_logs (profile_id, session_key);
+
+-- ============================================================
+-- EXERCICES PERSONNALISÉS DU COACH (rejoignent la bibliothèque partagée)
+-- ============================================================
+create table if not exists public.custom_exercises (
+  id uuid primary key default gen_random_uuid(),
+  coach_id uuid references auth.users on delete set null,
+  name text not null,
+  cat text not null,
+  location text not null default 'gym',
+  sets integer not null default 3,
+  reps text not null default '12 reps',
+  rest integer not null default 60,
+  diff text not null default 'Modéré',
+  tips text,
+  safety text,
+  equip text,
+  video_url text,
+  photo_url text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.custom_exercises enable row level security;
+
+drop policy if exists "custom_exercises_admin_all" on public.custom_exercises;
+create policy "custom_exercises_admin_all" on public.custom_exercises
+  for all using (public.is_admin(auth.uid()))
+  with check (public.is_admin(auth.uid()));
 
 -- ============================================================
 -- ÉTAPE MANUELLE : créer votre premier compte coach

@@ -20,6 +20,7 @@ function rowToProfile(row) {
     water: row.water,
     dark: row.dark,
     status: row.status,
+    revokeReason: row.revoke_reason,
     isAdmin: row.is_admin,
     assignedProgramId: row.assigned_program_id,
     customProgram: row.custom_program,
@@ -156,6 +157,23 @@ export async function setProfileStatus(id, status) {
   if (error) throw error;
 }
 
+/** Révoque l'accès d'un client déjà validé, avec un motif visible par le client
+ *  à sa prochaine tentative de connexion. */
+export async function revokeAccess(id, reason) {
+  const { error } = await supabase.from("profiles").update({
+    status: "revoked", revoke_reason: reason || null,
+  }).eq("id", id);
+  if (error) throw error;
+}
+
+/** Redonne l'accès à un client précédemment révoqué. */
+export async function restoreAccess(id) {
+  const { error } = await supabase.from("profiles").update({
+    status: "approved", revoke_reason: null,
+  }).eq("id", id);
+  if (error) throw error;
+}
+
 export async function assignLibraryProgram(id, programId) {
   const { error } = await supabase.from("profiles").update({
     assigned_program_id: programId || null,
@@ -206,6 +224,52 @@ export async function saveTemplate(name, programData) {
 export async function deleteTemplate(id) {
   const { error } = await supabase.from("program_templates").delete().eq("id", id);
   if (error) throw error;
+}
+
+/* ---------------- Historique des séries (perf par exercice) ---------------- */
+
+export async function logExerciseSet(profileId, sessionKey, exerciseName, setIndex, weight, reps) {
+  const { error } = await supabase.from("exercise_logs").insert({
+    profile_id: profileId, session_key: sessionKey, exercise_name: exerciseName,
+    set_index: setIndex, weight, reps,
+  });
+  if (error) throw error;
+}
+
+/** Retourne les séries de la dernière fois où cet exercice a été fait
+ *  (toutes séances confondues), ou null si jamais fait avant. */
+export async function getLastExercisePerformance(profileId, exerciseName) {
+  const { data, error } = await supabase
+    .from("exercise_logs")
+    .select("*")
+    .eq("profile_id", profileId)
+    .eq("exercise_name", exerciseName)
+    .order("logged_at", { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  if (!data || data.length === 0) return null;
+  const lastSessionKey = data[0].session_key;
+  return data
+    .filter(d => d.session_key === lastSessionKey)
+    .sort((a, b) => a.set_index - b.set_index)
+    .map(s => ({ weight: s.weight, reps: s.reps }));
+}
+
+/** Retourne toutes les séries loggées pour une séance précise, groupées par exercice. */
+export async function getSessionExerciseLogs(profileId, sessionKey) {
+  const { data, error } = await supabase
+    .from("exercise_logs")
+    .select("*")
+    .eq("profile_id", profileId)
+    .eq("session_key", sessionKey)
+    .order("set_index", { ascending: true });
+  if (error) throw error;
+  const grouped = {};
+  (data || []).forEach(row => {
+    if (!grouped[row.exercise_name]) grouped[row.exercise_name] = [];
+    grouped[row.exercise_name].push({ weight: row.weight, reps: row.reps, setIndex: row.set_index });
+  });
+  return grouped;
 }
 
 /* ---------------- Historique de poids ---------------- */
@@ -260,6 +324,41 @@ export async function createBillingPortalSession() {
   });
   if (error) throw error;
   return data.url;
+}
+
+/* ---------------- Exercices personnalisés (bibliothèque partagée) ---------------- */
+
+function customExerciseRowToApp(row) {
+  return {
+    id: `custom-${row.id}`, cat: row.cat, location: row.location, name: row.name,
+    sets: row.sets, reps: row.reps, rest: row.rest, diff: row.diff,
+    tips: row.tips || undefined, safety: row.safety || undefined, equip: row.equip || undefined,
+    videoUrl: row.video_url || undefined, photoUrl: row.photo_url || undefined,
+  };
+}
+
+export async function listCustomExercises() {
+  const { data, error } = await supabase
+    .from("custom_exercises")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data.map(customExerciseRowToApp);
+}
+
+/** Crée un exercice personnalisé et le fait rejoindre la bibliothèque partagée
+ *  (visible et réutilisable pour tous les futurs clients). */
+export async function createCustomExercise(fields) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Non connecté.");
+  const { data, error } = await supabase.from("custom_exercises").insert({
+    coach_id: session.user.id, name: fields.name, cat: fields.cat, location: fields.location,
+    sets: fields.sets, reps: fields.reps, rest: fields.rest, diff: fields.diff,
+    tips: fields.tips || null, safety: fields.safety || null, equip: fields.equip || null,
+    video_url: fields.videoUrl || null, photo_url: fields.photoUrl || null,
+  }).select().single();
+  if (error) throw error;
+  return customExerciseRowToApp(data);
 }
 
 /* ---------------- Photos de référence par exercice ---------------- */

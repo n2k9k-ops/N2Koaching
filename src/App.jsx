@@ -13,10 +13,12 @@ import {
 import { supabase } from "./lib/supabaseClient.js";
 import {
   signUp, signIn, signOut, getSessionProfile, updateOwnProgress, markSessionDone, completeOnboarding,
-  listAllProfiles, setProfileStatus, assignLibraryProgram, assignCustomProgram,
+  listAllProfiles, setProfileStatus, assignLibraryProgram, assignCustomProgram, revokeAccess, restoreAccess,
   listTemplates, saveTemplate, deleteTemplate,
   listMessages, sendMessage, markMessagesRead,
   logWeight, listWeightLogs, uploadExercisePhoto,
+  logExerciseSet, getLastExercisePerformance, getSessionExerciseLogs,
+  listCustomExercises, createCustomExercise,
   sendPasswordReset, updatePassword,
   createCheckoutSession, createBillingPortalSession,
   uploadAvatar, updateAvatarUrl,
@@ -1331,6 +1333,25 @@ const RejectedScreen = ({ c, onLogout }) => (
   </div>
 );
 
+const RevokedScreen = ({ c, onLogout, reason }) => (
+  <div className="ff-body anim-fadeIn" style={{ minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 30, textAlign: "center" }}>
+    <div style={{ width: 76, height: 76, borderRadius: 22, background: "rgba(255,59,48,0.15)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
+      <Lock size={34} color="#FF3B30" />
+    </div>
+    <h2 className="ff-display" style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Accès révoqué</h2>
+    <p style={{ color: c.muted, fontSize: 13.5, maxWidth: 320, lineHeight: 1.6, marginBottom: reason ? 14 : 26 }}>
+      Votre accès à N2Koaching a été révoqué par votre coach.
+    </p>
+    {reason && (
+      <div style={{ background: c.surface2, border: `1px solid ${c.border}`, borderRadius: 14, padding: 16, maxWidth: 320, marginBottom: 26 }}>
+        <div style={{ fontSize: 10.5, color: c.muted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 700 }}>Motif indiqué</div>
+        <div style={{ fontSize: 13, lineHeight: 1.5 }}>{reason}</div>
+      </div>
+    )}
+    <SecondaryBtn c={c} icon={LogOut} onClick={onLogout}>Retour à l'accueil</SecondaryBtn>
+  </div>
+);
+
 const ResetPasswordScreen = ({ c, onDone }) => {
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
@@ -1683,8 +1704,8 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completed
             </>
           ) : (
             <>
-              <div className="ff-display" style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>{FOCUS_LABEL[today.session.dayType] || today.session.title.split(" — ")[1]}</div>
-              <div style={{ fontSize: 12.5, color: c.muted, marginBottom: 16 }}>{today.session.estTotal} min · {today.session.main.length} exercices</div>
+              <div className="ff-display" style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>{today.session.dayType === "custom" ? today.session.title.split(" — ")[1] : FOCUS_LABEL[today.session.dayType]}</div>
+              <div style={{ fontSize: 12.5, color: c.muted, marginBottom: 16 }}>~{today.session.estTotal} min (estimé) · {today.session.main.length} exercices</div>
               <PrimaryBtn c={c} full icon={Play} onClick={() => openSession(today.program, today.week, today.dayIdx)} style={{ padding: "15px 20px", fontSize: 14.5 }}>
                 Lancer ma séance
               </PrimaryBtn>
@@ -1905,7 +1926,7 @@ const ProgramsList = ({ c, openProgram, state }) => {
 /* ============================================================
    PROGRAM DETAIL
 ============================================================ */
-const ProgramDetail = ({ c, program, onBack, openSession }) => {
+const ProgramDetail = ({ c, program, onBack, openSession, completedSessions, openReview }) => {
   const [expandedWeeks, setExpandedWeeks] = useState([1]);
   const toggleWeek = (w) => setExpandedWeeks(exp => exp.includes(w) ? exp.filter(x => x !== w) : [...exp, w]);
   const perWeek = program.cycle.filter(d => d !== "repos").length;
@@ -1992,14 +2013,16 @@ const ProgramDetail = ({ c, program, onBack, openSession }) => {
                         </div>
                       );
                     }
+                    const dayKey = `${program.id || program.name}-${w}-${di}`;
+                    const isDone = !!completedSessions[dayKey];
                     return (
-                      <div key={di} onClick={() => openSession(program, w, di)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderTop: di === 0 ? "none" : `1px solid ${c.border}`, cursor: "pointer" }}>
-                        <div style={{ width: 30, height: 30, borderRadius: 9, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                          <Play size={12} color={c.electric2} />
+                      <div key={di} onClick={() => isDone ? openReview(program, w, di, dayKey) : openSession(program, w, di)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderTop: di === 0 ? "none" : `1px solid ${c.border}`, cursor: "pointer" }}>
+                        <div style={{ width: 30, height: 30, borderRadius: 9, background: isDone ? c.success : c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          {isDone ? <Check size={14} color="#fff" /> : <Play size={12} color={c.electric2} />}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12.5, fontWeight: 600 }}>{sess.dayLabel} — {FOCUS_LABEL[sess.dayType]}</div>
-                          <div style={{ fontSize: 11, color: c.muted }}>{sess.estTotal} min · {sess.main.length + 4} exercices</div>
+                          <div style={{ fontSize: 12.5, fontWeight: 600 }}>{sess.dayLabel} — {sess.dayType === "custom" ? sess.title.split(" — ")[1] : FOCUS_LABEL[sess.dayType]}</div>
+                          <div style={{ fontSize: 11, color: c.muted }}>{isDone ? "Terminée · voir mes performances" : `~${sess.estTotal} min (estimé) · ${sess.main.length + 4} exercices`}</div>
                         </div>
                         <ChevronRight size={15} color={c.muted} />
                       </div>
@@ -2194,6 +2217,59 @@ const MessageThread = ({ c, clientId, isAdmin, peerName }) => {
   );
 };
 
+const SessionPerformanceView = ({ c, session, profileId, sessionKey }) => {
+  const [logs, setLogs] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!profileId || !sessionKey) { setLoading(false); return; }
+    getSessionExerciseLogs(profileId, sessionKey).then(setLogs).catch(() => setLogs({})).finally(() => setLoading(false));
+  }, [profileId, sessionKey]);
+
+  if (session.rest) return <RestDayScreen c={c} />;
+
+  return (
+    <div style={{ padding: "18px 18px 30px" }} className="anim-fadeIn">
+      <div style={{ background: c.gradB, borderRadius: 20, padding: 20, marginBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <CheckCircle2 size={16} color="#fff" />
+          <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: 0.4 }}>Séance terminée</span>
+        </div>
+        <div className="ff-display" style={{ color: "#fff", fontWeight: 700, fontSize: 17 }}>{session.title}</div>
+      </div>
+
+      <SectionTitle c={c}>Vos performances</SectionTitle>
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 30, color: c.muted, fontSize: 12.5 }}>Chargement...</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {session.main.map((e, i) => {
+            const setsLogged = (logs && logs[e.name]) || [];
+            return (
+              <Card c={c} key={i} style={{ padding: 14 }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 10 }}>{i + 1}. {e.name}</div>
+                {setsLogged.length === 0 ? (
+                  <div style={{ fontSize: 11.5, color: c.muted }}>Aucune série loggée pour cet exercice.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {setsLogged.map((s, si) => (
+                      <div key={si} style={{ display: "flex", alignItems: "center", gap: 10, background: c.surface2, borderRadius: 10, padding: "8px 12px" }}>
+                        <CheckCircle2 size={13} color={c.success} />
+                        <span style={{ fontSize: 12, fontWeight: 600 }}>Série {si + 1}</span>
+                        <span className="ff-mono" style={{ marginLeft: "auto", fontSize: 12, color: c.muted }}>{s.weight ?? "—"} kg × {s.reps}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const RestDayScreen = ({ c }) => (
   <div style={{ padding: "18px 18px 30px", textAlign: "center" }} className="anim-fadeIn">
     <div style={{ width: 72, height: 72, borderRadius: 20, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", margin: "40px auto 20px" }}>
@@ -2218,7 +2294,7 @@ const RestDayScreen = ({ c }) => (
    MODE FOCUS — un exercice plein écran à la fois, avec repos
    obligatoire plein écran entre les séries.
 ============================================================ */
-const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, onContinue, onExitFocus }) => {
+const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, onContinue, onExitFocus, profileId, sessionKey }) => {
   const [sets, setSets] = useState(() => Array.from({ length: exercise.sets }, () => ({ weight: "", reps: "", done: false })));
   const [phase, setPhase] = useState("input"); // input | resting | done
   const [activeIdx, setActiveIdx] = useState(0);
@@ -2226,7 +2302,13 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
   const [reps, setReps] = useState("");
   const [restRemaining, setRestRemaining] = useState(exercise.rest);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [lastTime, setLastTime] = useState(null);
   const timeBased = /sec|min/.test(exercise.reps);
+
+  useEffect(() => {
+    if (!profileId) return;
+    getLastExercisePerformance(profileId, exercise.name).then(setLastTime).catch(() => {});
+  }, [profileId, exercise.name]);
 
   useEffect(() => {
     if (phase !== "resting") return;
@@ -2238,6 +2320,9 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
   const validate = () => {
     if (weight === "" || reps === "") return;
     setSets(s => s.map((row, i) => i === activeIdx ? { weight, reps, done: true } : row));
+    if (profileId && sessionKey) {
+      logExerciseSet(profileId, sessionKey, exercise.name, activeIdx, Number(weight) || null, reps).catch(() => {});
+    }
     setWeight(""); setReps("");
     if (activeIdx === exercise.sets - 1) {
       setPhase("done");
@@ -2249,7 +2334,10 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
     }
   };
 
+  const skipRest = () => setPhase("input");
+
   const restPct = ((exercise.rest - restRemaining) / exercise.rest) * 100;
+  const lastTimeForSet = lastTime && lastTime[activeIdx];
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 700, background: c.bg, backgroundImage: c.bgGrad, display: "flex", flexDirection: "column", padding: "calc(18px + max(env(safe-area-inset-top), 24px)) 20px calc(18px + env(safe-area-inset-bottom))" }} className="ff-body anim-fadeIn">
@@ -2286,7 +2374,13 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
               {exercise.cat}{exercise.equip ? ` · ${exercise.equip}` : ""}
             </div>
             <h1 className="ff-display" style={{ fontSize: 25, fontWeight: 700, margin: "0 0 6px", lineHeight: 1.15 }}>{exercise.name}</h1>
-            <div style={{ fontSize: 13, color: c.muted, marginBottom: 28 }}>{exercise.sets} séries × {exercise.reps}</div>
+            <div style={{ fontSize: 13, color: c.muted, marginBottom: lastTimeForSet ? 10 : 28 }}>{exercise.sets} séries × {exercise.reps}</div>
+            {lastTimeForSet && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, background: c.surface2, borderRadius: 999, padding: "6px 14px", marginBottom: 26 }}>
+                <TrendingUp size={13} color={c.electric2} />
+                <span style={{ fontSize: 12, color: c.muted }}>Dernière fois : <b style={{ color: c.text }} className="ff-mono">{lastTimeForSet.weight ?? "—"} kg × {lastTimeForSet.reps}</b></span>
+              </div>
+            )}
 
             <div style={{ display: "flex", gap: 6, marginBottom: 30 }}>
               {sets.map((s, i) => (
@@ -2306,12 +2400,12 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 24 }}>
               <div>
                 <div style={{ fontSize: 12, color: c.muted, marginBottom: 8 }}>Charge (kg)</div>
-                <input type="number" inputMode="decimal" value={weight} onChange={e => setWeight(e.target.value)} placeholder="0" autoFocus
+                <input type="number" inputMode="decimal" value={weight} onChange={e => setWeight(e.target.value)} placeholder={lastTimeForSet ? String(lastTimeForSet.weight ?? "0") : "0"} autoFocus
                   style={{ width: "100%", textAlign: "center", background: c.surface, border: `1.5px solid ${c.border}`, borderRadius: 16, padding: "18px 10px", color: c.text, fontSize: 26, fontWeight: 700, outline: "none" }} className="ff-mono" />
               </div>
               <div>
                 <div style={{ fontSize: 12, color: c.muted, marginBottom: 8 }}>{timeBased ? "Temps (sec)" : "Répétitions"}</div>
-                <input type="number" inputMode="numeric" value={reps} onChange={e => setReps(e.target.value)} placeholder="0"
+                <input type="number" inputMode="numeric" value={reps} onChange={e => setReps(e.target.value)} placeholder={lastTimeForSet ? String(lastTimeForSet.reps ?? "0") : "0"}
                   style={{ width: "100%", textAlign: "center", background: c.surface, border: `1.5px solid ${c.border}`, borderRadius: 16, padding: "18px 10px", color: c.text, fontSize: 26, fontWeight: 700, outline: "none" }} className="ff-mono" />
               </div>
             </div>
@@ -2322,7 +2416,7 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
         )}
 
         {phase === "resting" && (
-          <div className="anim-pop">
+          <div className="anim-pop" style={{ width: "100%", maxWidth: 300 }}>
             <Ring pct={restPct} size={220} stroke={14} c={c}>
               <div style={{ textAlign: "center" }}>
                 <div className="ff-mono anim-softPulse" style={{ fontSize: 52, fontWeight: 700, color: c.text, lineHeight: 1 }}>{restRemaining}</div>
@@ -2330,9 +2424,10 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
               </div>
             </Ring>
             <div className="ff-display" style={{ fontSize: 17, fontWeight: 700, marginTop: 24, display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
-              <Lock size={16} color={c.electric2} /> Repos obligatoire
+              <Timer size={16} color={c.electric2} /> Temps de repos
             </div>
-            <div style={{ fontSize: 12.5, color: c.muted, marginTop: 6 }}>Série {activeIdx + 1} débloquée automatiquement</div>
+            <div style={{ fontSize: 12.5, color: c.muted, marginTop: 6, marginBottom: 20 }}>Série {activeIdx + 1} débloquée automatiquement</div>
+            <SecondaryBtn c={c} full icon={ChevronRight} onClick={skipRest}>Passer le repos</SecondaryBtn>
           </div>
         )}
 
@@ -2355,7 +2450,7 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
   );
 };
 
-const FocusRunner = ({ c, exercises, startIndex, onMarkDone, onClose }) => {
+const FocusRunner = ({ c, exercises, startIndex, onMarkDone, onClose, profileId, sessionKey }) => {
   const [idx, setIdx] = useState(startIndex);
   const exercise = exercises[idx];
   const isLast = idx === exercises.length - 1;
@@ -2365,26 +2460,31 @@ const FocusRunner = ({ c, exercises, startIndex, onMarkDone, onClose }) => {
       nextName={isLast ? null : exercises[idx + 1].name}
       onExerciseDone={() => onMarkDone(idx)}
       onContinue={() => { if (isLast) onClose(); else setIdx(idx + 1); }}
-      onExitFocus={onClose} />
+      onExitFocus={onClose} profileId={profileId} sessionKey={sessionKey} />
   );
 };
 
-const SessionDetail = ({ c, session, onComplete, completed }) => {
+const SessionDetail = ({ c, session, onComplete, completed, profileId, sessionKey }) => {
   const [doneMap, setDoneMap] = useState({});
   const [focusOpen, setFocusOpen] = useState(false);
   const [focusStart, setFocusStart] = useState(0);
+  const startedAtRef = useRef(null);
   if (session.rest) return <RestDayScreen c={c} />;
   const totalExercises = session.warm.length + session.main.length + session.cool.length;
   const doneCount = Object.keys(doneMap).length;
   const allLogged = doneCount >= session.main.length;
   const markDone = (idx) => setDoneMap(m => ({ ...m, [idx]: true }));
+  const finishSession = () => {
+    const elapsed = startedAtRef.current ? Math.max(1, Math.round((Date.now() - startedAtRef.current) / 60000)) : null;
+    onComplete(elapsed);
+  };
 
   return (
     <div style={{ padding: "18px 18px 110px" }} className="anim-fadeIn">
       <div style={{ background: c.gradB, borderRadius: 20, padding: 20, marginBottom: 18 }}>
         <div className="ff-display" style={{ color: "#fff", fontWeight: 700, fontSize: 17, marginBottom: 10 }}>{session.title}</div>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, color: "rgba(255,255,255,0.85)", fontSize: 12.5 }}><Clock size={14} /> {session.estTotal} min</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, color: "rgba(255,255,255,0.85)", fontSize: 12.5 }}><Clock size={14} /> ~{session.estTotal} min estimé</div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, color: "rgba(255,255,255,0.85)", fontSize: 12.5 }}><Target size={14} /> {totalExercises} exercices</div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, color: "rgba(255,255,255,0.85)", fontSize: 12.5 }}><Activity size={14} /> {session.difficulty}</div>
         </div>
@@ -2416,18 +2516,19 @@ const SessionDetail = ({ c, session, onComplete, completed }) => {
         Exercices principaux
       </SectionTitle>
       <p style={{ fontSize: 11.5, color: c.muted, marginTop: -6, marginBottom: 12, lineHeight: 1.5 }}>
-        Chaque exercice s'ouvre en plein écran, un à la fois, avec un repos obligatoire entre les séries.
+        Chaque exercice s'ouvre en plein écran, un à la fois, avec un temps de repos entre les séries (possibilité de le passer).
       </p>
       <PrimaryBtn c={c} full icon={Play} style={{ marginBottom: 12 }} onClick={() => {
         const firstIncomplete = session.main.findIndex((_, i) => !doneMap[i]);
         setFocusStart(firstIncomplete === -1 ? 0 : firstIncomplete);
         setFocusOpen(true);
+        if (!startedAtRef.current) startedAtRef.current = Date.now();
       }}>
         {doneCount === 0 ? "Démarrer les exercices" : doneCount < session.main.length ? `Reprendre (${doneCount}/${session.main.length})` : "Revoir les exercices"}
       </PrimaryBtn>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
         {session.main.map((e, i) => (
-          <Card key={i} c={c} onClick={() => { setFocusStart(i); setFocusOpen(true); }} style={{ padding: 12, display: "flex", alignItems: "center", gap: 12 }}>
+          <Card key={i} c={c} onClick={() => { setFocusStart(i); setFocusOpen(true); if (!startedAtRef.current) startedAtRef.current = Date.now(); }} style={{ padding: 12, display: "flex", alignItems: "center", gap: 12 }}>
             <div className="ff-mono" style={{
               width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700,
               background: doneMap[i] ? c.success : c.surface2, color: doneMap[i] ? "#fff" : c.text
@@ -2442,7 +2543,7 @@ const SessionDetail = ({ c, session, onComplete, completed }) => {
       </div>
       {focusOpen && (
         <FocusRunner c={c} exercises={session.main} startIndex={focusStart}
-          onMarkDone={(i) => markDone(i)} onClose={() => setFocusOpen(false)} />
+          onMarkDone={(i) => markDone(i)} onClose={() => setFocusOpen(false)} profileId={profileId} sessionKey={sessionKey} />
       )}
 
       <SectionTitle c={c}>Retour au calme</SectionTitle>
@@ -2465,7 +2566,7 @@ const SessionDetail = ({ c, session, onComplete, completed }) => {
             Loggez les {session.main.length} exercices pour valider la séance
           </div>
         )}
-        <PrimaryBtn c={c} full icon={completed ? CheckCircle2 : Play} onClick={onComplete} disabled={!allLogged && !completed}
+        <PrimaryBtn c={c} full icon={completed ? CheckCircle2 : Play} onClick={finishSession} disabled={!allLogged && !completed}
           style={completed ? { background: c.success, boxShadow: "0 8px 24px rgba(52,199,89,0.35)" } : {}}>
           {completed ? "Séance terminée ✓" : "Terminer la séance"}
         </PrimaryBtn>
@@ -2923,23 +3024,41 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
   const [cEquip, setCEquip] = useState("");
   const [cVideo, setCVideo] = useState("");
   const [cPhoto, setCPhoto] = useState("");
+  const [cSaving, setCSaving] = useState(false);
+  const [customLibrary, setCustomLibrary] = useState([]);
 
-  const filtered = EXERCISE_LIBRARY.filter(e =>
+  useEffect(() => {
+    listCustomExercises().then(setCustomLibrary).catch(() => {});
+  }, []);
+
+  const fullLibrary = [...EXERCISE_LIBRARY, ...customLibrary];
+  const filtered = fullLibrary.filter(e =>
     (e.location === location || e.location === "both") &&
     (catFilter === "Tous" || e.cat === catFilter) &&
     (!search || e.name.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const addCustom = () => {
-    if (!cName.trim()) return;
-    onAdd({
-      id: `custom-${Date.now()}`, cat: cCat, location, name: cName.trim(),
+  const addCustom = async () => {
+    if (!cName.trim() || cSaving) return;
+    setCSaving(true);
+    const fields = {
+      name: cName.trim(), cat: cCat, location,
       sets: Number(cSets) || 3, reps: cReps.trim() || "12 reps", rest: Number(cRest) || 60,
       diff: cDiff, tips: cTips.trim(), safety: cSafety.trim(), equip: cEquip.trim() || undefined,
       videoUrl: cVideo.trim() || undefined, photoUrl: cPhoto || undefined,
-    });
+    };
+    try {
+      const created = await createCustomExercise(fields);
+      setCustomLibrary(lib => [created, ...lib]);
+      onAdd(created);
+    } catch (e) {
+      // Le backend n'a pas pu sauvegarder l'exercice dans la bibliothèque partagée —
+      // on l'ajoute quand même à cette séance pour ne pas bloquer le coach.
+      onAdd({ id: `custom-${Date.now()}`, ...fields });
+    }
     setCName(""); setCTips(""); setCSafety(""); setCEquip(""); setCVideo(""); setCPhoto(""); setCSets(3); setCReps("12 reps"); setCRest(60);
     setShowCustom(false);
+    setCSaving(false);
   };
 
   return (
@@ -2987,7 +3106,7 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
           <textarea style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12, minHeight: 44, resize: "vertical" }} placeholder="Consigne de sécurité (optionnel)" value={cSafety} onChange={e => setCSafety(e.target.value)} />
           <input style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12 }} placeholder="Lien vidéo YouTube (optionnel)" value={cVideo} onChange={e => setCVideo(e.target.value)} />
           <PhotoUploadField c={c} value={cPhoto} onChange={setCPhoto} />
-          <PrimaryBtn c={c} full icon={Plus} disabled={!cName.trim()} onClick={addCustom} style={{ padding: "9px 14px" }}>Ajouter à la séance</PrimaryBtn>
+          <PrimaryBtn c={c} full icon={Plus} disabled={!cName.trim() || cSaving} onClick={addCustom} style={{ padding: "9px 14px" }}>{cSaving ? "Enregistrement..." : "Ajouter à la séance"}</PrimaryBtn>
         </div>
       )}
 
@@ -2996,7 +3115,10 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
         {filtered.map(libEx => (
           <div key={libEx.id} style={{ display: "flex", alignItems: "center", gap: 8, background: c.surface, borderRadius: 10, padding: "8px 10px" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600 }}>{libEx.name}</div>
+              <div style={{ fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                {libEx.name}
+                {typeof libEx.id === "string" && libEx.id.startsWith("custom-") && <Pill c={c} tone="electric">Perso</Pill>}
+              </div>
               <div style={{ fontSize: 10.5, color: c.muted }}>{libEx.cat} · {libEx.sets}×{libEx.reps}</div>
             </div>
             <button onClick={() => onAdd(libEx)} style={{ width: 28, height: 28, borderRadius: 9, border: "none", background: c.gradA, color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -3203,9 +3325,12 @@ function fmtRelative(dateStr) {
   return `Il y a ${days} j`;
 }
 
-const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuilder, editing, onCloseBuilder, onSaveCustom, templates, otherClients, onSaveTemplate }) => {
+const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuilder, editing, onCloseBuilder, onSaveCustom, templates, otherClients, onSaveTemplate, onRevoke, onRestore }) => {
   const assigned = resolveAssignedProgram(client);
   const [showChat, setShowChat] = useState(false);
+  const [showRevokeForm, setShowRevokeForm] = useState(false);
+  const [revokeReasonText, setRevokeReasonText] = useState("");
+
   return (
     <Card c={c} style={{ marginBottom: 10 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -3219,6 +3344,7 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
         {client.status === "pending" && <Pill c={c} tone="warning">En attente</Pill>}
         {client.status === "approved" && <Pill c={c} tone="success">Actif</Pill>}
         {client.status === "rejected" && <Pill c={c} tone="danger">Refusé</Pill>}
+        {client.status === "revoked" && <Pill c={c} tone="danger">Révoqué</Pill>}
       </div>
 
       {client.status === "pending" && (
@@ -3233,7 +3359,7 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
           <div style={{ fontSize: 11.5, color: c.muted, marginBottom: 8 }}>
             Programme actuel : <b style={{ color: c.text }}>{assigned ? assigned.name : "Aucun (bibliothèque libre)"}</b>
           </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: (editing || showChat) ? 12 : 0 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: (editing || showChat) ? 12 : 8 }}>
             <select style={{ ...inputStyle(c), flex: 1, padding: "9px 10px", fontSize: 12.5 }} value={client.assignedProgramId || ""} onChange={e => onAssignLibrary(client, e.target.value)}>
               <option value="">— Assigner depuis la bibliothèque —</option>
               {PROGRAMS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -3244,10 +3370,37 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
           {editing && <ProgramBuilder c={c} client={client} onCancel={onCloseBuilder} onSave={(prog) => onSaveCustom(client, prog)}
             templates={templates} otherClients={otherClients} onSaveTemplate={onSaveTemplate} />}
           {showChat && (
-            <div style={{ height: 340, background: c.surface2, borderRadius: 14, padding: 12 }}>
+            <div style={{ height: 340, background: c.surface2, borderRadius: 14, padding: 12, marginBottom: 8 }}>
               <MessageThread c={c} clientId={client.id} isAdmin={true} peerName={client.name} />
             </div>
           )}
+
+          {showRevokeForm ? (
+            <div style={{ background: "rgba(255,59,48,0.08)", border: `1px solid ${c.danger}`, borderRadius: 12, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: c.danger }}>Révoquer l'accès de {client.name}</div>
+              <textarea value={revokeReasonText} onChange={e => setRevokeReasonText(e.target.value)} placeholder="Motif visible par le client (optionnel)"
+                style={{ ...inputStyle(c), minHeight: 60, resize: "vertical", fontSize: 12.5 }} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <SecondaryBtn c={c} full onClick={() => { setShowRevokeForm(false); setRevokeReasonText(""); }}>Annuler</SecondaryBtn>
+                <PrimaryBtn c={c} full icon={Lock} style={{ background: c.danger }} onClick={() => { onRevoke(client, revokeReasonText.trim()); setShowRevokeForm(false); setRevokeReasonText(""); }}>Révoquer</PrimaryBtn>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowRevokeForm(true)} style={{ background: "none", border: "none", color: c.danger, fontSize: 11.5, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, padding: 0 }}>
+              <Lock size={12} /> Révoquer l'accès
+            </button>
+          )}
+        </div>
+      )}
+
+      {client.status === "revoked" && (
+        <div style={{ marginTop: 12 }}>
+          {client.revokeReason && (
+            <div style={{ background: c.surface2, borderRadius: 10, padding: 10, marginBottom: 10, fontSize: 12, color: c.muted }}>
+              <b style={{ color: c.text }}>Motif :</b> {client.revokeReason}
+            </div>
+          )}
+          <SecondaryBtn c={c} full icon={ShieldCheck} onClick={() => onRestore(client)}>Réactiver l'accès</SecondaryBtn>
         </div>
       )}
     </Card>
@@ -3329,6 +3482,14 @@ const AdminPanel = ({ c, onExit }) => {
   const handleSaveTemplate = async (name, data) => {
     try { await saveTemplate(name, data); const tpls = await listTemplates(); setTemplates(tpls); } catch (e) { setErr(e.message); }
   };
+  const revoke = async (client, reason) => {
+    setAccounts(prev => prev.map(a => a.id === client.id ? { ...a, status: "revoked", revokeReason: reason } : a));
+    try { await revokeAccess(client.id, reason); } catch (e) { setErr(e.message); load(); }
+  };
+  const restore = async (client) => {
+    setAccounts(prev => prev.map(a => a.id === client.id ? { ...a, status: "approved", revokeReason: "" } : a));
+    try { await restoreAccess(client.id); } catch (e) { setErr(e.message); load(); }
+  };
 
   const pending = accounts.filter(a => a.status === "pending");
   const clients = accounts.filter(a => a.status !== "pending");
@@ -3374,7 +3535,7 @@ const AdminPanel = ({ c, onExit }) => {
               ) : pending.map(client => (
                 <ClientRow key={client.id} c={c} client={client} onApprove={approve} onReject={reject}
                   onAssignLibrary={assignLibrary} onOpenBuilder={() => {}} editing={false} onCloseBuilder={() => {}} onSaveCustom={() => {}}
-                  templates={templates} otherClients={[]} onSaveTemplate={handleSaveTemplate} />
+                  templates={templates} otherClients={[]} onSaveTemplate={handleSaveTemplate} onRevoke={revoke} onRestore={restore} />
               ))
             )}
             {tabAdmin === "clients" && (
@@ -3389,7 +3550,7 @@ const AdminPanel = ({ c, onExit }) => {
                   onSaveCustom={saveCustom}
                   templates={templates}
                   otherClients={approvedClients.filter(o => o.id !== client.id && o.customProgram)}
-                  onSaveTemplate={handleSaveTemplate} />
+                  onSaveTemplate={handleSaveTemplate} onRevoke={revoke} onRestore={restore} />
               ))
             )}
             {tabAdmin === "overview" && <OverviewTab c={c} clients={approvedClients} />}
@@ -3447,6 +3608,7 @@ export default function App() {
       age: profile.age || null, gender: profile.gender || null, injuries: profile.injuries || "",
       avatarUrl: profile.avatarUrl || null,
       subscriptionStatus: profile.subscriptionStatus || "inactive",
+      revokeReason: profile.revokeReason || "",
     });
     setCompletedSessions(profile.completedSessions || {});
     setWater(profile.water ?? 3);
@@ -3460,6 +3622,7 @@ export default function App() {
     if (!profile.onboarded) { setScreen("onboarding"); return; }
     if (profile.isAdmin) { setScreen("admin"); return; }
     if (profile.status === "approved") setScreen("app");
+    else if (profile.status === "revoked") setScreen("revoked");
     else if (profile.status === "rejected") setScreen("rejected");
     else setScreen("pending");
   };
@@ -3516,6 +3679,7 @@ export default function App() {
 
   const openProgram = (p) => setView({ screen: "programDetail", program: p });
   const openSession = (program, w, dayIdx) => setView({ screen: "session", program, w, dayIdx, session: buildDaySession(program, w, dayIdx) });
+  const openReview = (program, w, dayIdx, sessionKey) => setView({ screen: "sessionReview", program, w, dayIdx, sessionKey, session: buildDaySession(program, w, dayIdx) });
   const goTab = (t) => { setTab(t); setView({ screen: "tab" }); };
   const logout = async () => {
     setDrawerOpen(false);
@@ -3524,16 +3688,17 @@ export default function App() {
     setScreen("landing"); setView({ screen: "tab" }); setTab("home");
   };
 
-  const handleComplete = () => {
+  const handleComplete = (actualMinutes) => {
     const key = `${view.program.id || view.program.name}-${view.w}-${view.dayIdx}`;
     if (completedSessions[key]) return;
     const gainedXp = 120;
-    const gainedCalories = 340;
+    const realMinutes = actualMinutes && actualMinutes > 0 ? actualMinutes : view.session.estTotal;
+    const gainedCalories = Math.round(realMinutes * 6.5); // ~6.5 kcal/min, estimation générale musculation modérée
     const completedAt = new Date().toISOString();
-    setCompletedSessions(cs => ({ ...cs, [key]: { completedAt, minutes: view.session.estTotal, calories: gainedCalories, xp: gainedXp, title: view.session.title } }));
+    setCompletedSessions(cs => ({ ...cs, [key]: { completedAt, minutes: realMinutes, calories: gainedCalories, xp: gainedXp, title: view.session.title } }));
     setState(s => {
       const newXp = s.xp + gainedXp;
-      return { ...s, xp: newXp, level: levelFromXp(newXp), streak: s.streak + 1, sessionsCompleted: s.sessionsCompleted + 1, totalMinutes: s.totalMinutes + view.session.estTotal, calories: s.calories + gainedCalories };
+      return { ...s, xp: newXp, level: levelFromXp(newXp), streak: s.streak + 1, sessionsCompleted: s.sessionsCompleted + 1, totalMinutes: s.totalMinutes + realMinutes, calories: s.calories + gainedCalories };
     });
     setReward({ title: `+${gainedXp} XP gagnés !`, desc: "Séance validée — continuez sur votre lancée 🔥" });
     if (profileId) markSessionDone(profileId).catch(() => {});
@@ -3560,6 +3725,9 @@ export default function App() {
   if (screen === "rejected") {
     return <><GlobalStyle /><RejectedScreen c={c} onLogout={logout} /></>;
   }
+  if (screen === "revoked") {
+    return <><GlobalStyle /><RevokedScreen c={c} onLogout={logout} reason={state.revokeReason} /></>;
+  }
   if (screen === "resetPassword") {
     return <><GlobalStyle /><ResetPasswordScreen c={c} onDone={() => { setReward({ title: "Mot de passe mis à jour", desc: "Vous pouvez vous reconnecter normalement." }); handleAuthed(); }} /></>;
   }
@@ -3570,11 +3738,14 @@ export default function App() {
 
   if (view.screen === "programDetail") {
     title = view.program.name; onBack = () => setView({ screen: "tab" });
-    content = <ProgramDetail c={c} program={view.program} onBack={onBack} openSession={openSession} />;
+    content = <ProgramDetail c={c} program={view.program} onBack={onBack} openSession={openSession} completedSessions={completedSessions} openReview={openReview} />;
   } else if (view.screen === "session") {
     title = view.session.rest ? "Repos" : "Séance"; onBack = () => setView({ screen: "programDetail", program: view.program });
     const key = `${view.program.id || view.program.name}-${view.w}-${view.dayIdx}`;
-    content = <SessionDetail key={key} c={c} session={view.session} onComplete={handleComplete} completed={!!completedSessions[key]} />;
+    content = <SessionDetail key={key} c={c} session={view.session} onComplete={handleComplete} completed={!!completedSessions[key]} profileId={profileId} sessionKey={key} />;
+  } else if (view.screen === "sessionReview") {
+    title = "Performances"; onBack = () => setView({ screen: "programDetail", program: view.program });
+    content = <SessionPerformanceView c={c} session={view.session} profileId={profileId} sessionKey={view.sessionKey} />;
   } else if (tab === "home") {
     content = <Dashboard c={c} state={state} quote={quote} openProgram={openProgram} openSession={openSession} goTab={goTab} completedSessions={completedSessions} water={water} />;
   } else if (tab === "programs") {
