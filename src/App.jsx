@@ -1292,6 +1292,7 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab }) => {
   const nextLevelXp = xpForLevel(level);
   const pct = ((xp - curLevelXp) / (nextLevelXp - curLevelXp)) * 100;
   const assigned = resolveAssignedProgram(state);
+  const today = assigned ? computeTodaySession(state) : null;
   const featured = [PROGRAMS.find(p => p.id === "ppl"), PROGRAMS.find(p => p.id === "upper-lower"), PROGRAMS.find(p => p.id === "maison")];
 
   return (
@@ -1319,7 +1320,37 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab }) => {
         </div>
       </Card>
 
-      {assigned && (
+      {assigned && today && (
+        <Card c={c} style={{ marginBottom: 14, border: `1.5px solid ${c.electric}`, padding: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+            <CalendarIcon size={13} color={c.electric2} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4 }}>Votre séance</span>
+          </div>
+          {today.session.rest ? (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 14, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Coffee size={22} color={c.muted} />
+                </div>
+                <div className="ff-display" style={{ fontWeight: 700, fontSize: 16 }}>Jour de repos</div>
+              </div>
+              <p style={{ fontSize: 12.5, color: c.muted, margin: "8px 0 0 60px" }}>Profitez-en pour récupérer — votre prochaine séance vous attend demain.</p>
+            </>
+          ) : (
+            <>
+              <div className="ff-display" style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>{FOCUS_LABEL[today.session.dayType] || today.session.title.split(" — ")[1]}</div>
+              <div style={{ fontSize: 12.5, color: c.muted, marginBottom: 16 }}>{today.session.estTotal} min · {today.session.main.length} exercices</div>
+              <PrimaryBtn c={c} full icon={Play} onClick={() => openSession(today.program, today.week, today.dayIdx)} style={{ padding: "15px 20px", fontSize: 14.5 }}>
+                Lancer ma séance
+              </PrimaryBtn>
+            </>
+          )}
+          <button onClick={() => openProgram(assigned)} style={{ background: "none", border: "none", color: c.muted, fontSize: 11.5, cursor: "pointer", marginTop: 12, display: "block", margin: "12px auto 0" }}>
+            Voir mon programme complet
+          </button>
+        </Card>
+      )}
+      {assigned && !today && (
         <Card c={c} onClick={() => openProgram(assigned)} style={{ marginBottom: 14, display: "flex", gap: 14, alignItems: "center", border: `1.5px solid ${c.electric}` }}>
           <div style={{ width: 44, height: 44, borderRadius: 13, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <UserCog size={20} color="#fff" />
@@ -1352,26 +1383,30 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab }) => {
         ))}
       </div>
 
-      <SectionTitle c={c} action={<button onClick={() => goTab("programs")} style={{ background: "none", border: "none", color: c.electric2, fontSize: 12.5, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 2 }}>Tout voir <ChevronRight size={14} /></button>}>
-        Programmes recommandés
-      </SectionTitle>
-      <div className="scrollbar-none" style={{ display: "flex", gap: 12, overflowX: "auto", marginBottom: 20, paddingBottom: 4 }}>
-        {featured.map((p) => (
-          <div key={p.id} onClick={() => openProgram(p)} style={{ minWidth: 190, background: c.surface, border: `1px solid ${c.border}`, borderRadius: 18, padding: 16, cursor: "pointer", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <div style={{ width: 34, height: 34, borderRadius: 10, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <p.icon size={17} color="#fff" />
+      {!assigned && (
+        <>
+          <SectionTitle c={c} action={<button onClick={() => goTab("programs")} style={{ background: "none", border: "none", color: c.electric2, fontSize: 12.5, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 2 }}>Tout voir <ChevronRight size={14} /></button>}>
+            Programmes recommandés
+          </SectionTitle>
+          <div className="scrollbar-none" style={{ display: "flex", gap: 12, overflowX: "auto", marginBottom: 20, paddingBottom: 4 }}>
+            {featured.map((p) => (
+              <div key={p.id} onClick={() => openProgram(p)} style={{ minWidth: 190, background: c.surface, border: `1px solid ${c.border}`, borderRadius: 18, padding: 16, cursor: "pointer", flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 10, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <p.icon size={17} color="#fff" />
+                  </div>
+                  {p.location === "home" ? <HomeIcon size={14} color={c.muted} /> : <Building2 size={14} color={c.muted} />}
+                </div>
+                <div className="ff-display" style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>{p.name}</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <Pill c={c}>{p.weeks} sem</Pill>
+                  <Pill c={c}>{p.level}</Pill>
+                </div>
               </div>
-              {p.location === "home" ? <HomeIcon size={14} color={c.muted} /> : <Building2 size={14} color={c.muted} />}
-            </div>
-            <div className="ff-display" style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>{p.name}</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <Pill c={c}>{p.weeks} sem</Pill>
-              <Pill c={c}>{p.level}</Pill>
-            </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
 
       <SectionTitle c={c}>Défis du jour</SectionTitle>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
@@ -1414,25 +1449,49 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab }) => {
 const ProgramsList = ({ c, openProgram, state }) => {
   const [filter, setFilter] = useState("Tous");
   const [locFilter, setLocFilter] = useState("Tous");
-  const cats = ["Tous", ...new Set(PROGRAMS.map(p => p.cat))];
-  let shown = filter === "Tous" ? PROGRAMS : PROGRAMS.filter(p => p.cat === filter);
-  if (locFilter !== "Tous") shown = shown.filter(p => p.location === locFilter);
   const assigned = resolveAssignedProgram(state);
 
-  return (
-    <div style={{ padding: "18px 18px 30px" }} className="anim-fadeIn">
-      {assigned && (
-        <Card c={c} onClick={() => openProgram(assigned)} style={{ marginBottom: 16, display: "flex", gap: 14, alignItems: "center", border: `1.5px solid ${c.electric}` }}>
+  if (assigned) {
+    const Icon = assigned.icon || Sparkles;
+    return (
+      <div style={{ padding: "18px 18px 30px" }} className="anim-fadeIn">
+        <div style={{ textAlign: "center", padding: "20px 10px 24px" }}>
+          <div style={{ width: 54, height: 54, borderRadius: 16, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+            <UserCog size={24} color="#fff" />
+          </div>
+          <h2 className="ff-display" style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Votre programme est géré par votre coach</h2>
+          <p style={{ fontSize: 12.5, color: c.muted, maxWidth: 300, margin: "0 auto", lineHeight: 1.6 }}>
+            Contactez-le via Messages si vous souhaitez un changement de programme.
+          </p>
+        </div>
+        <Card c={c} onClick={() => openProgram(assigned)} style={{ display: "flex", gap: 14, alignItems: "center", border: `1.5px solid ${c.electric}` }}>
           <div style={{ width: 50, height: 50, borderRadius: 14, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <UserCog size={22} color="#fff" />
+            <Icon size={22} color="#fff" />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <Pill c={c} tone="electric">Assigné par votre coach</Pill>
-            <div className="ff-display" style={{ fontWeight: 700, fontSize: 14.5, marginTop: 6 }}>{assigned.name}</div>
+            <div className="ff-display" style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>{assigned.name}</div>
+            <div style={{ fontSize: 12, color: c.muted, marginBottom: 6 }}>{assigned.weeks} semaines · {assigned.cycle.filter(d => d !== "repos").length}x/semaine · {assigned.level}</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <Pill c={c} tone="electric">{assigned.cat}</Pill>
+              <Pill c={c}>{assigned.location === "home" ? "🏠 Maison" : "🏋️ Salle"}</Pill>
+            </div>
           </div>
           <ChevronRight size={18} color={c.muted} />
         </Card>
-      )}
+      </div>
+    );
+  }
+
+  const cats = ["Tous", ...new Set(PROGRAMS.map(p => p.cat))];
+  let shown = filter === "Tous" ? PROGRAMS : PROGRAMS.filter(p => p.cat === filter);
+  if (locFilter !== "Tous") shown = shown.filter(p => p.location === locFilter);
+
+  return (
+    <div style={{ padding: "18px 18px 30px" }} className="anim-fadeIn">
+      <Card c={c} style={{ marginBottom: 16, padding: 14, display: "flex", gap: 10, alignItems: "center" }}>
+        <Info size={16} color={c.electric2} style={{ flexShrink: 0 }} />
+        <span style={{ fontSize: 12, color: c.muted, lineHeight: 1.5 }}>Aucun programme ne vous a encore été assigné — choisissez-en un librement, ou attendez que votre coach vous en configure un sur-mesure.</span>
+      </Card>
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         {[{ id: "Tous", l: "Tous", icon: null }, { id: "gym", l: "Salle", icon: Building2 }, { id: "home", l: "Maison", icon: HomeIcon }].map(f => (
           <button key={f.id} onClick={() => setLocFilter(f.id)} style={{
