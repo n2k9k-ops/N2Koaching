@@ -269,3 +269,22 @@ Sur la fiche d'un client actif, un lien discret **"Révoquer l'accès"** ouvre u
 **Message groupé** : dans l'espace coach, bouton "Message groupé à tous les clients" — un seul message envoyé d'un coup dans le fil de chaque client actif, au lieu de le retaper dans chaque conversation.
 
 **Ressenti post-séance** : après chaque séance terminée, un écran demande — difficulté ressentie (1 à 10, slider vert→rouge), niveau d'énergie après l'effort (1 à 10), courbatures attendues (Aucune/Légères/Modérées/Fortes), et un commentaire libre optionnel. Skippable si le client ne veut pas répondre. Côté coach, un bouton 📊 sur chaque client affiche l'historique complet, la moyenne des 5 dernières séances, et une alerte automatique si le RPE moyen est élevé **et** l'énergie moyenne basse en même temps — signe de fatigue qui s'installe.
+
+## Zoom photo, fix texte invisible, Street Workout, nouveau logo
+
+⚠️ Relance `supabase/schema.sql` en entier si ce n'est pas déjà fait pour la mise à jour précédente (table `session_feedback`).
+
+- **Zoom photo** : tap sur n'importe quelle photo de progression (client ou coach) pour l'agrandir en plein écran.
+- **Fix texte noir sur noir** : l'écran de ressenti post-séance oubliait de définir la couleur du texte — corrigé, ainsi que le même risque sur l'écran plein écran des exercices.
+- **Street Workout** : nouvelle catégorie d'exercices (tractions, dips, muscle-up, pistol squat, L-sit, front lever, human flag...) et deux programmes : "Street Workout Fondations" (Débutant) et "Street Workout Performance" (Avancé).
+- **Nouveau logo** : un vrai symbole cette fois (pas du texte) — trois barres ascendantes avec une flèche vers le haut, représentant la progression. Régénéré en haute qualité (`public/icons/`) et appliqué aussi dans l'app elle-même (le logo affiché dans les écrans de connexion, la sidebar, etc. correspond maintenant exactement à l'icône de l'app).
+
+## Bandeau de rappel avant expiration
+
+Aucun changement SQL — ça réutilise `access_expires_at` déjà en place.
+
+Un bandeau orange apparaît sur le tableau de bord du client dans les **7 jours** avant l'expiration de son accès, avec la date exacte. La même info est aussi visible en permanence dans son Profil (onglet "Abonnement"), qu'elle soit proche de l'expiration ou non — "Accès illimité" si aucune date n'est fixée.
+
+## Logo — troisième itération : une flamme
+
+Aucun changement SQL. Nouveau concept : une flamme blanche à cœur ambre, une seule forme organique et fluide (fini les éléments disjoints du logo précédent), cohérente avec l'icône 🔥 déjà utilisée partout dans l'app pour le streak. Appliquée aux icônes (`public/icons/`) et dans l'app elle-même.

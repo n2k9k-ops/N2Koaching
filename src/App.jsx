@@ -122,7 +122,10 @@ const Logo = ({ c, size = 34, style }) => (
     display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
     boxShadow: `0 ${size * 0.12}px ${size * 0.5}px rgba(0,113,227,0.35)`, ...style
   }}>
-    <span className="ff-display" style={{ color: "#fff", fontWeight: 800, fontSize: size * 0.36, letterSpacing: -0.5, lineHeight: 1 }}>N2K</span>
+    <svg width={size * 0.5} height={size * 0.5} viewBox="0 0 24 24" fill="none">
+      <path d="M12 2.5C11 4.5 9.5 5.8 9.5 8.2C9.5 9.6 10.2 10.4 11 10.4C12 10.4 12.6 9.6 12.6 8.6C13.8 9.6 15.5 11.4 15.5 14C15.5 17.6 12.9 20.5 9.5 20.5C6.1 20.5 3.5 17.9 3.5 14.3C3.5 12.7 4.1 11.3 5 10.2C5.3 11.6 6.3 12.5 7.4 12.5C6.9 11.4 6.7 10.2 7.1 8.9C7.7 6.9 9.3 5.2 12 2.5Z" fill="#fff" />
+      <path d="M11.5 20.2C13.4 20.2 14.9 18.6 14.9 16.5C14.9 14.8 13.9 13.6 12.8 12.7C12.9 13.6 12.5 14.3 11.8 14.3C11.2 14.3 10.8 13.9 10.8 13.2C9.9 13.9 9 15 9 16.5C9 18.6 9.9 20.2 11.5 20.2Z" fill="#FF9F0A" />
+    </svg>
   </div>
 );
 
@@ -217,6 +220,16 @@ const POOLS = {
     { name: "Sprint sur place", sets: 5, reps: "30 sec", rest: 30, diff: "Difficile", tips: "Genoux hauts, bras actifs.", safety: "Échauffement complet obligatoire." },
     { name: "Burpees", sets: 4, reps: "12 reps", rest: 45, diff: "Difficile", tips: "Gainage constant du début à la fin.", safety: "Dos plat en position pompe." },
   ],
+  street: [
+    { name: "Tractions strictes", sets: 4, reps: "8 reps", rest: 90, diff: "Difficile", tips: "Amplitude complète, menton au-dessus de la barre.", safety: "Échauffez bien les épaules avant.", equip: "Barre de traction" },
+    { name: "Dips sur barres parallèles", sets: 4, reps: "10 reps", rest: 90, diff: "Difficile", tips: "Buste légèrement penché en avant.", safety: "Amplitude adaptée à votre mobilité d'épaule.", equip: "Barres parallèles" },
+    { name: "Muscle-up (strict ou assisté)", sets: 3, reps: "5 reps", rest: 120, diff: "Difficile", tips: "Transition explosive traction → dips.", safety: "Maîtrisez d'abord tractions et dips séparément.", equip: "Barre de traction" },
+    { name: "Pompes archer", sets: 3, reps: "8 reps / côté", rest: 75, diff: "Difficile", tips: "Un bras tendu sur le côté, l'autre travaille.", safety: "Progressez graduellement en amplitude." },
+    { name: "Squats pistol", sets: 3, reps: "6 reps / jambe", rest: 90, diff: "Difficile", tips: "Bras tendus devant pour l'équilibre.", safety: "Aidez-vous d'un support au besoin." },
+    { name: "L-sit sur barres parallèles", sets: 3, reps: "20 sec", rest: 60, diff: "Difficile", tips: "Jambes tendues, gainage maximal.", safety: "Progressez avec les genoux repliés d'abord.", equip: "Barres parallèles" },
+    { name: "Row australien", sets: 4, reps: "12 reps", rest: 60, diff: "Modéré", tips: "Corps aligné, tirez la poitrine vers la barre.", safety: "Réglez la hauteur selon votre niveau.", equip: "Barre basse ou anneaux" },
+    { name: "Front lever tuck (progression)", sets: 3, reps: "15 sec", rest: 90, diff: "Difficile", tips: "Genoux repliés vers la poitrine, corps à l'horizontale.", safety: "Progression exigeante, avancez petit à petit.", equip: "Barre de traction" },
+  ],
 };
 
 /* ============================================================
@@ -233,6 +246,7 @@ const FOCUS_LABEL = {
   hiit: "HIIT",
   abs: "Abdominaux",
   home: "Full Body (Maison)",
+  street: "Street Workout",
   custom: "Séance coach",
   repos: "Repos",
 };
@@ -246,7 +260,7 @@ const HOME_DAY_TYPES = ["home", "cardio", "hiit", "abs", "repos"];
 ============================================================ */
 const EXERCISE_CATEGORIES = [
   "Pectoraux", "Dos", "Épaules", "Biceps", "Triceps",
-  "Quadriceps", "Ischios & Fessiers", "Mollets", "Abdominaux", "Cardio", "Full Body / Maison",
+  "Quadriceps", "Ischios & Fessiers", "Mollets", "Abdominaux", "Cardio", "Full Body / Maison", "Street Workout",
 ];
 let __exId = 0;
 const ex = (cat, location, name, sets, reps, rest, diff, tips, safety, equip) => ({
@@ -401,6 +415,18 @@ const EXERCISE_LIBRARY = [
   ex("Full Body / Maison", "home", "Fentes marchées poids du corps", 3, "16 reps", 45, "Modéré", "Pas long et contrôlé, buste droit.", "Genou avant stable."),
   ex("Full Body / Maison", "home", "Gainage dynamique (planche + touch épaule)", 3, "30 sec", 30, "Modéré", "Bassin stable, alternez les épaules.", "Écartez les pieds pour plus de stabilité."),
   ex("Full Body / Maison", "home", "Squat + presse militaire élastique", 3, "15 reps", 45, "Modéré", "Enchaînement squat puis poussée au-dessus de la tête.", "Élastique ancré sous les pieds.", "Élastique"),
+  // --- Street Workout ---
+  ex("Street Workout", "home", "Tractions strictes", 4, "8 reps", 90, "Difficile", "Amplitude complète, menton au-dessus de la barre.", "Échauffez bien les épaules avant.", "Barre de traction"),
+  ex("Street Workout", "home", "Dips sur barres parallèles", 4, "10 reps", 90, "Difficile", "Buste légèrement penché en avant.", "Amplitude adaptée à votre mobilité d'épaule.", "Barres parallèles"),
+  ex("Street Workout", "home", "Muscle-up (strict ou assisté)", 3, "5 reps", 120, "Difficile", "Transition explosive traction → dips.", "Maîtrisez d'abord tractions et dips séparément.", "Barre de traction"),
+  ex("Street Workout", "home", "Pompes archer", 3, "8 reps / côté", 75, "Difficile", "Un bras tendu sur le côté, l'autre travaille.", "Progressez graduellement en amplitude."),
+  ex("Street Workout", "home", "Squats pistol", 3, "6 reps / jambe", 90, "Difficile", "Bras tendus devant pour l'équilibre.", "Aidez-vous d'un support au besoin."),
+  ex("Street Workout", "home", "L-sit sur barres parallèles", 3, "20 sec", 60, "Difficile", "Jambes tendues, gainage maximal.", "Progressez avec les genoux repliés d'abord.", "Barres parallèles"),
+  ex("Street Workout", "home", "Row australien", 4, "12 reps", 60, "Modéré", "Corps aligné, tirez la poitrine vers la barre.", "Réglez la hauteur selon votre niveau.", "Barre basse ou anneaux"),
+  ex("Street Workout", "home", "Handstand push-up contre mur", 3, "6 reps", 90, "Difficile", "Descente contrôlée, tête entre les bras.", "Progressez avec un support avant de tenter sans mur."),
+  ex("Street Workout", "home", "Front lever tuck (progression)", 3, "15 sec", 90, "Difficile", "Genoux repliés vers la poitrine, corps à l'horizontale.", "Progression exigeante, avancez petit à petit.", "Barre de traction"),
+  ex("Street Workout", "home", "Human flag (progression négatifs)", 3, "3 reps / côté", 120, "Difficile", "Descente lente et contrôlée depuis la position haute.", "Nécessite un bon niveau de gainage préalable.", "Poteau ou barre verticale"),
+  ex("Street Workout", "home", "Tractions australiennes lestées", 3, "12 reps", 60, "Modéré", "Corps gainé, tirez la poitrine vers la barre.", "Ajoutez une charge progressivement.", "Barre basse"),
 ];
 
 const PROGRAMS = [
@@ -456,6 +482,14 @@ const PROGRAMS = [
     goals: ["S'entraîner sans équipement", "Gagner en force fonctionnelle", "S'adapter à un petit espace"],
     desc: "Le seul programme 100% maison de N2Koaching : uniquement du poids du corps, efficace et progressif.",
     cycle: ["home", "repos", "cardio", "home", "repos", "abs", "repos"] },
+  { id: "street-fondations", name: "Street Workout Fondations", cat: "Street Workout", level: "Débutant", weeks: 6, location: "home", icon: Award,
+    goals: ["Maîtriser les mouvements de base (tractions, dips)", "Construire une force fonctionnelle", "Préparer les figures avancées"],
+    desc: "L'entrée dans la callisthénie : tractions, dips et gainage sur barre, pour construire des bases solides avant les figures techniques.",
+    cycle: ["street", "repos", "street", "abs", "repos", "street", "repos"] },
+  { id: "street-performance", name: "Street Workout Performance", cat: "Street Workout", level: "Avancé", weeks: 8, location: "home", icon: Trophy,
+    goals: ["Progresser vers le muscle-up et le front lever", "Développer une force relative élevée", "Maîtriser les figures statiques"],
+    desc: "Programme exigeant pour pratiquants confirmés : muscle-up, L-sit, front lever et human flag en progression.",
+    cycle: ["street", "street", "repos", "street", "abs", "street", "repos"] },
 ];
 
 function poolFor(program, dayType) {
@@ -818,6 +852,21 @@ function extractYouTubeId(url) {
 function youtubeSearchUrl(name) {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(name + " technique musculation")}`;
 }
+const PhotoViewer = ({ url, onClose }) => (
+  <div onClick={onClose} style={{
+    position: "fixed", inset: 0, zIndex: 900, background: "rgba(0,0,0,0.92)",
+    display: "flex", alignItems: "center", justifyContent: "center", padding: "calc(16px + max(env(safe-area-inset-top), 24px)) 16px 16px"
+  }} className="anim-fadeIn">
+    <button onClick={onClose} style={{
+      position: "absolute", top: "calc(16px + max(env(safe-area-inset-top), 24px))", right: 16, width: 40, height: 40, borderRadius: "50%",
+      background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer"
+    }}>
+      <X size={20} />
+    </button>
+    <img src={url} alt="" onClick={e => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 12 }} />
+  </div>
+);
+
 const VideoBlock = ({ c, videoUrl, exerciseName }) => {
   const vid = extractYouTubeId(videoUrl);
   if (vid) {
@@ -1697,9 +1746,24 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completed
   const weeklyPoints = computeWeeklyPoints(completedSessions);
   const streakInfo = computeRealStreak(completedSessions, state.streakFreezeUsedAt);
   const featured = [PROGRAMS.find(p => p.id === "ppl"), PROGRAMS.find(p => p.id === "upper-lower"), PROGRAMS.find(p => p.id === "maison")];
+  const daysUntilExpiry = state.accessExpiresAt ? Math.ceil((new Date(state.accessExpiresAt) - new Date()) / 86400000) : null;
+  const expirySoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 7;
 
   return (
     <div style={{ padding: "18px 18px 30px" }} className="anim-fadeIn">
+      {expirySoon && (
+        <Card c={c} style={{ marginBottom: 14, background: "rgba(255,159,10,0.12)", border: `1px solid ${c.warning}`, display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(255,159,10,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Hourglass size={17} color={c.warning} />
+          </div>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700 }}>
+              {daysUntilExpiry === 0 ? "Votre accès expire aujourd'hui" : `Votre accès expire dans ${daysUntilExpiry} jour${daysUntilExpiry > 1 ? "s" : ""}`}
+            </div>
+            <div style={{ fontSize: 11, color: c.muted }}>Le {new Date(state.accessExpiresAt).toLocaleDateString("fr-FR")} — contactez votre coach pour le renouveler.</div>
+          </div>
+        </Card>
+      )}
       <Card c={c} style={{ background: c.gradB, border: "none", marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <Ring pct={pct} size={72} stroke={7} c={{ ...c, surface2: "rgba(255,255,255,0.2)" }} colorFrom="#fff" colorTo="#fff">
@@ -2335,7 +2399,7 @@ const SessionFeedbackForm = ({ c, onSubmit, onSkip }) => {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 800, background: c.bg, backgroundImage: c.bgGrad, overflowY: "auto", display: "flex", alignItems: "center" }} className="ff-body anim-fadeIn scrollbar-none">
+    <div style={{ position: "fixed", inset: 0, zIndex: 800, background: c.bg, backgroundImage: c.bgGrad, color: c.text, overflowY: "auto", display: "flex", alignItems: "center" }} className="ff-body anim-fadeIn scrollbar-none">
       <div style={{ maxWidth: 400, margin: "0 auto", width: "100%", padding: "calc(24px + max(env(safe-area-inset-top), 24px)) 24px calc(24px + env(safe-area-inset-bottom))" }}>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
           <div style={{ width: 60, height: 60, borderRadius: 18, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
@@ -2469,7 +2533,7 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
   const lastTimeForSet = lastTime && lastTime[activeIdx];
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: c.bg, backgroundImage: c.bgGrad, display: "flex", flexDirection: "column", padding: "calc(18px + max(env(safe-area-inset-top), 24px)) 20px calc(18px + env(safe-area-inset-bottom))" }} className="ff-body anim-fadeIn">
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: c.bg, backgroundImage: c.bgGrad, color: c.text, display: "flex", flexDirection: "column", padding: "calc(18px + max(env(safe-area-inset-top), 24px)) 20px calc(18px + env(safe-area-inset-bottom))" }} className="ff-body anim-fadeIn">
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
         <button onClick={onExitFocus} style={{ width: 38, height: 38, borderRadius: 12, border: `1px solid ${c.border}`, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: c.text }}>
           <X size={18} />
@@ -2809,6 +2873,7 @@ const ProgressPhotos = ({ c, profileId }) => {
   const [note, setNote] = useState("");
   const [pendingUrl, setPendingUrl] = useState("");
   const [error, setError] = useState("");
+  const [zoomUrl, setZoomUrl] = useState(null);
   const fileInputRef = useRef(null);
 
   const load = () => {
@@ -2878,7 +2943,7 @@ const ProgressPhotos = ({ c, profileId }) => {
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {photos.map(p => (
             <Card c={c} key={p.id} style={{ padding: 14 }}>
-              <img src={p.photoUrl} alt="" style={{ width: "100%", maxHeight: 260, objectFit: "cover", borderRadius: 12, display: "block", marginBottom: 10 }} />
+              <img src={p.photoUrl} alt="" onClick={() => setZoomUrl(p.photoUrl)} style={{ width: "100%", maxHeight: 260, objectFit: "cover", borderRadius: 12, display: "block", marginBottom: 10, cursor: "pointer" }} />
               <div style={{ fontSize: 11, color: c.muted, marginBottom: p.note ? 6 : 0 }}>
                 {new Date(p.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}
               </div>
@@ -2896,6 +2961,7 @@ const ProgressPhotos = ({ c, profileId }) => {
           ))}
         </div>
       )}
+      {zoomUrl && <PhotoViewer url={zoomUrl} onClose={() => setZoomUrl(null)} />}
     </div>
   );
 };
@@ -3077,6 +3143,8 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
   const [logging, setLogging] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const avatarInputRef = useRef(null);
+  const profileDaysUntilExpiry = state.accessExpiresAt ? Math.ceil((new Date(state.accessExpiresAt) - new Date()) / 86400000) : null;
+  const profileExpirySoon = profileDaysUntilExpiry !== null && profileDaysUntilExpiry >= 0 && profileDaysUntilExpiry <= 7;
 
   useEffect(() => {
     if (!profileId) { setLoadingLogs(false); return; }
@@ -3169,6 +3237,24 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
             <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>{state.injuries}</div>
           </div>
         )}
+      </Card>
+
+      <SectionTitle c={c}>Abonnement</SectionTitle>
+      <Card c={c} style={{
+        marginBottom: 18, display: "flex", alignItems: "center", gap: 12,
+        borderColor: profileExpirySoon ? c.warning : c.border
+      }}>
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: profileExpirySoon ? "rgba(255,159,10,0.15)" : "rgba(0,113,227,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Hourglass size={17} color={profileExpirySoon ? c.warning : c.electric2} />
+        </div>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>
+            {state.accessExpiresAt
+              ? `${profileExpirySoon ? "Expire bientôt" : "Valide"} jusqu'au ${new Date(state.accessExpiresAt).toLocaleDateString("fr-FR")}`
+              : "Accès illimité"}
+          </div>
+          {profileExpirySoon && <div style={{ fontSize: 11, color: c.muted }}>Contactez votre coach pour renouveler.</div>}
+        </div>
       </Card>
 
       <SectionTitle c={c} action={<button onClick={() => { setLogVal(weight); setShowLogForm(!showLogForm); }} style={{ background: "none", border: "none", color: c.electric2, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 3 }}><Plus size={13} /> Enregistrer</button>}>
@@ -3617,7 +3703,7 @@ const ClientFeedbackPanel = ({ c, clientId }) => {
   );
 };
 
-const ClientPhotosPanel = ({ c, clientId }) => {
+const ClientPhotosPanel = ({ c, clientId, onZoom }) => {
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [replyDrafts, setReplyDrafts] = useState({});
@@ -3652,7 +3738,7 @@ const ClientPhotosPanel = ({ c, clientId }) => {
     <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 420, overflowY: "auto" }}>
       {photos.map(p => (
         <div key={p.id} style={{ background: c.surface, borderRadius: 12, padding: 10 }}>
-          <img src={p.photoUrl} alt="" style={{ width: "100%", maxHeight: 200, objectFit: "cover", borderRadius: 10, display: "block", marginBottom: 8 }} />
+          <img src={p.photoUrl} alt="" onClick={() => onZoom(p.photoUrl)} style={{ width: "100%", maxHeight: 200, objectFit: "cover", borderRadius: 10, display: "block", marginBottom: 8, cursor: "pointer" }} />
           <div style={{ fontSize: 10.5, color: c.muted, marginBottom: 4 }}>{new Date(p.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</div>
           {p.note && <p style={{ fontSize: 12, margin: "0 0 8px" }}>{p.note}</p>}
           <textarea value={replyDrafts[p.id] || ""} onChange={e => setReplyDrafts(d => ({ ...d, [p.id]: e.target.value }))}
@@ -3680,6 +3766,7 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
   const [showChat, setShowChat] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [zoomUrl, setZoomUrl] = useState(null);
   const [showRevokeForm, setShowRevokeForm] = useState(false);
   const [revokeReasonText, setRevokeReasonText] = useState("");
   const [duration, setDuration] = useState(30);
@@ -3777,7 +3864,7 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
           )}
           {showPhotos && (
             <div style={{ background: c.surface2, borderRadius: 14, padding: 12, marginBottom: 8 }}>
-              <ClientPhotosPanel c={c} clientId={client.id} />
+              <ClientPhotosPanel c={c} clientId={client.id} onZoom={setZoomUrl} />
             </div>
           )}
           {showFeedback && (
@@ -3814,6 +3901,7 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
           <SecondaryBtn c={c} full icon={ShieldCheck} onClick={() => onRestore(client)}>Réactiver l'accès</SecondaryBtn>
         </div>
       )}
+      {zoomUrl && <PhotoViewer url={zoomUrl} onClose={() => setZoomUrl(null)} />}
     </Card>
   );
 };
