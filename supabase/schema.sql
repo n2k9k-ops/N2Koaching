@@ -168,10 +168,16 @@ create table if not exists public.messages (
   client_id uuid not null references public.profiles(id) on delete cascade,
   sender_id uuid not null references auth.users(id) on delete cascade,
   sender_is_admin boolean not null default false,
-  content text not null,
+  content text,
+  attachment_url text,
+  attachment_type text,
   created_at timestamptz not null default now(),
   read boolean not null default false
 );
+
+alter table public.messages alter column content drop not null;
+alter table public.messages add column if not exists attachment_url text;
+alter table public.messages add column if not exists attachment_type text;
 
 alter table public.messages enable row level security;
 
@@ -189,6 +195,21 @@ create policy "messages_insert" on public.messages
 drop policy if exists "messages_update" on public.messages;
 create policy "messages_update" on public.messages
   for update using (client_id = auth.uid() or public.is_admin(auth.uid()));
+
+insert into storage.buckets (id, name, public)
+values ('message-attachments', 'message-attachments', true)
+on conflict (id) do nothing;
+
+drop policy if exists "message_attachments_read" on storage.objects;
+create policy "message_attachments_read" on storage.objects
+  for select using (bucket_id = 'message-attachments');
+
+drop policy if exists "message_attachments_write" on storage.objects;
+create policy "message_attachments_write" on storage.objects
+  for insert with check (
+    bucket_id = 'message-attachments'
+    and (public.is_admin(auth.uid()) or (storage.foldername(name))[1] = auth.uid()::text)
+  );
 
 -- ============================================================
 -- HISTORIQUE DE POIDS (pour le graphique de progression réel)

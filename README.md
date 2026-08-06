@@ -288,3 +288,75 @@ Un bandeau orange apparaît sur le tableau de bord du client dans les **7 jours*
 ## Logo — troisième itération : une flamme
 
 Aucun changement SQL. Nouveau concept : une flamme blanche à cœur ambre, une seule forme organique et fluide (fini les éléments disjoints du logo précédent), cohérente avec l'icône 🔥 déjà utilisée partout dans l'app pour le streak. Appliquée aux icônes (`public/icons/`) et dans l'app elle-même.
+
+## Tutoriel d'installation à l'inscription (iPhone / Android)
+
+Aucun changement SQL.
+
+Juste après avoir créé son profil (onboarding), le nouveau client voit un écran "Installez l'application" avec deux choix : **iPhone** ou **Android**. Chaque choix ouvre un tutoriel étape par étape spécifique à la plateforme (Safari + bouton Partager pour iOS, menu ⋮ + Chrome pour Android). Un lien "Passer cette étape" reste disponible pour ne pas bloquer l'inscription.
+
+## Exercices complémentaires (bibliothèque étendue)
+
+Aucun changement SQL — ce sont des exercices statiques ajoutés au code, pas des données coach.
+
+⚠️ **Sur la vidéo envoyée** : je n'ai pas copié les images de l'autre application (droits d'auteur), mais j'ai identifié et ajouté les mouvements qui manquaient vraiment à ta bibliothèque, avec du contenu original (sets/reps/conseils/sécurité) dans le même style que le reste :
+- Rowing Pendlay
+- Soulevé de terre sumo
+- Épaulé (clean) et Épaulé-jeté (clean and jerk) — mouvements olympiques
+- Tractions prise supination (chin-up)
+- Développé au sol (floor press)
+- Développé incliné à la poulie
+- Adduction hanche machine
+- Squat overhead
+- Turkish get-up (kettlebell)
+
+Si tu repères d'autres exercices précis de la vidéo que tu veux vraiment absolument avoir (j'ai fait une sélection représentative plutôt que les ~400 exercices un par un), donne-moi les noms et je les ajoute.
+
+## Espace coach amélioré (tableau de bord, navigation, design)
+
+Aucun changement SQL.
+
+- **Tableau de bord enrichi** : "Vue d'ensemble" est maintenant le premier onglet affiché en arrivant dans l'espace coach. Nouvelles stats globales — séances cumulées tous clients, abonnements expirant sous 7 jours (avec liste dédiée), graphique d'activité hebdomadaire agrégé sur tous les clients.
+- **Navigation réordonnée** : Vue d'ensemble → À valider → Clients, dans l'ordre où un coach en a réellement besoin en se connectant.
+- **Design** : carte d'accueil dégradée en haut avec les stats essentielles d'un coup d'œil (clients actifs, en attente, actifs aujourd'hui), déconnexion déplacée en icône discrète dans l'en-tête au lieu d'un gros bouton, cartes de stats avec icônes dans des cercles pour une cohérence avec le reste de l'app.
+
+## Voir les charges des clients (côté coach)
+
+Aucun changement SQL — ça réutilise `exercise_logs` déjà en place.
+
+Nouveau bouton 🏋️ sur chaque client actif : liste ses 15 dernières séances loggées, chacune dépliable pour voir le détail exercice par exercice — charge × reps pour chaque série, exactement ce que le client a réellement fait.
+
+## Calendrier multi-clients, progression par exercice, rappel de pesée
+
+Aucun changement SQL — tout réutilise les données déjà stockées (`exercise_logs`, `completed_sessions`, `weight_logs`).
+
+**Calendrier multi-clients** (coach) : nouvel onglet "Calendrier" dans l'espace coach — une vue mensuelle où chaque jour affiche un badge avec le nombre de clients actifs ce jour-là. Cliquer sur un jour affiche la liste précise des clients qui se sont entraînés.
+
+**Progression par exercice** (graphique réel) :
+- **Côté client** : nouvelle section "Progression par exercice" dans le Profil — sélectionne un exercice déjà loggé, voit une vraie courbe de charge dans le temps, avec meilleure charge et 1RM estimé (formule d'Epley).
+- **Côté coach** : dans le panneau 🏋️ de chaque client, un bascule "Par séance / Par exercice" — le mode "Par exercice" affiche exactement le même graphique que côté client, pour n'importe quel client.
+
+**Rappel de pesée en fin de séance** : juste après le questionnaire de ressenti post-séance (ou si le client le passe), un écran rappelle de se peser, avec un champ de saisie rapide directement là (pas besoin de naviguer ailleurs) et un bouton "Plus tard" pour ne pas bloquer.
+
+## Pièces jointes + accusés de lecture dans les messages, notes de version
+
+⚠️ Relance `supabase/schema.sql` en entier (ajoute `attachment_url` sur `messages`, rend `content` optionnel, ajoute le bucket `message-attachments`).
+
+**Pièces jointes** : bouton appareil photo à côté du champ de message — envoie une photo directement dans le chat, tapotable pour zoomer.
+
+**Accusés de lecture** : corrigé un bug de logique — avant, ouvrir la conversation marquait TOUS les messages comme lus, y compris les siens. Maintenant chaque partie ne marque comme lus que les messages de l'AUTRE. Sous ton dernier message envoyé, tu vois "Envoyé" ou "Vu" selon que le client l'a ouvert ou non.
+
+**Notes de version ("Quoi de neuf")** : à chaque nouvelle mise à jour publiée, les clients voient une fois un petit panneau listant les nouveautés, à leur prochaine ouverture de l'app. Stocké localement sur l'appareil (pas besoin de compte/serveur pour ça) — pense à mettre à jour la liste `PATCH_NOTES` en haut de `src/App.jsx` à chaque nouvelle fonctionnalité que tu déploies, sinon les clients ne verront jamais rien de nouveau.
+
+## Bibliothèque de programmes professionnels, notes vocales
+
+⚠️ Relance `supabase/schema.sql` en entier (ajoute `attachment_type` sur `messages`).
+
+**3 nouveaux programmes basés sur de vraies méthodologies reconnues**, pas du contenu générique :
+- **5/3/1 Force Athlétique** — d'après la méthode de Jim Wendler, référence en powerlifting. Un mouvement principal lourd par séance (squat/développé couché/soulevé de terre/développé militaire), 4 jours/semaine, 12 semaines avec logique de cycles léger/moyen/lourd/deload expliquée dans les conseils.
+- **PHUL Hypertrophie** — Power Hypertrophy Upper Lower, méthode reconnue pour la prise de masse : 2 séances "force" (charge lourde, faible volume) + 2 séances "hypertrophie" (charge modérée, volume élevé), chaque groupe musculaire travaillé 2x/semaine.
+- **Full Body Métabolique** — approche perte de poids moderne qui garde des mouvements composés lourds (pas juste du cardio) pour préserver la masse musculaire en déficit calorique, alterné avec du conditionnement HIIT.
+
+Chaque programme a sa propre sélection d'exercices adaptée à l'objectif (pas les mêmes pools génériques que les programmes existants) — tu peux les voir dans la bibliothèque, catégorie "Force", "Hypertrophie" et "Perte de poids".
+
+**Notes vocales** : bouton micro à côté du champ de message — appuie pour démarrer l'enregistrement, ré-appuie pour l'envoyer directement dans le chat, lecture avec un lecteur audio intégré.

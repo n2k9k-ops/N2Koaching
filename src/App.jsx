@@ -8,18 +8,18 @@ import {
   Building2, HomeIcon, Coffee, UserPlus, LogIn, Eye, EyeOff, Users,
   ClipboardList, ShieldCheck, XCircle, Send, Edit3, Hourglass, RefreshCw,
   UserCog, MailX, Copy, Bookmark, MessageCircle, AlertTriangle, CheckCheck,
-  LayoutDashboard, PlayCircle, Camera, RotateCcw
+  LayoutDashboard, PlayCircle, Camera, RotateCcw, Mic
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient.js";
 import {
   signUp, signIn, signOut, getSessionProfile, updateOwnProgress, markSessionDone, completeOnboarding,
   listAllProfiles, setProfileStatus, assignLibraryProgram, assignCustomProgram, revokeAccess, restoreAccess,
   listTemplates, saveTemplate, deleteTemplate,
-  listMessages, sendMessage, markMessagesRead,
+  listMessages, sendMessage, markMessagesRead, uploadMessageAttachment,
   logWeight, listWeightLogs, uploadExercisePhoto, updateStreakFreezeUsedAt,
   uploadProgressPhoto, createProgressPhoto, listProgressPhotos, replyToProgressPhoto,
   approveWithDuration, renewAccess, submitSessionFeedback, listSessionFeedback, broadcastMessage,
-  logExerciseSet, getLastExercisePerformance, getSessionExerciseLogs,
+  logExerciseSet, getLastExercisePerformance, getSessionExerciseLogs, listLoggedExerciseNames, getExerciseHistory,
   listCustomExercises, createCustomExercise,
   sendPasswordReset, updatePassword,
   createCheckoutSession, createBillingPortalSession,
@@ -230,6 +230,75 @@ const POOLS = {
     { name: "Row australien", sets: 4, reps: "12 reps", rest: 60, diff: "Modéré", tips: "Corps aligné, tirez la poitrine vers la barre.", safety: "Réglez la hauteur selon votre niveau.", equip: "Barre basse ou anneaux" },
     { name: "Front lever tuck (progression)", sets: 3, reps: "15 sec", rest: 90, diff: "Difficile", tips: "Genoux repliés vers la poitrine, corps à l'horizontale.", safety: "Progression exigeante, avancez petit à petit.", equip: "Barre de traction" },
   ],
+  // --- 5/3/1 Force Athlétique (méthode Wendler) : 1 mouvement principal lourd + accessoires ---
+  force531Squat: [
+    { name: "Squat barre", sets: 5, reps: "5 reps (charge ~75-85% du 1RM)", rest: 180, diff: "Difficile", tips: "Mouvement principal de la séance. Progression sur 3 semaines (léger/moyen/lourd) puis semaine de deload — ajustez les charges avec votre coach.", safety: "Toujours avec un rack de sécurité ou un pareur proche du maximum.", equip: "Barre + rack" },
+    { name: "Presse à cuisses", sets: 3, reps: "10 reps", rest: 90, diff: "Modéré", tips: "Accessoire : volume pour les quadriceps.", safety: "Amplitude complète sans décoller le bas du dos.", equip: "Presse à cuisses" },
+    { name: "Leg curl allongé", sets: 3, reps: "10 reps", rest: 75, diff: "Modéré", tips: "Contraction complète des ischios.", safety: "Mouvement contrôlé, pas d'à-coup.", equip: "Machine leg curl" },
+    { name: "Gainage lesté", sets: 3, reps: "40 sec", rest: 45, diff: "Modéré", tips: "Ajoutez un disque sur le dos une fois le corps de base maîtrisé.", safety: "Dos plat, pas de creux lombaire." },
+    { name: "Mollets debout machine", sets: 4, reps: "12 reps", rest: 45, diff: "Facile", tips: "Amplitude complète, pause en haut.", safety: "Mouvement contrôlé sans rebond.", equip: "Machine mollets" },
+  ],
+  force531Bench: [
+    { name: "Développé couché barre", sets: 5, reps: "5 reps (charge ~75-85% du 1RM)", rest: 180, diff: "Difficile", tips: "Mouvement principal de la séance. Suivez la même logique de progression que le squat.", safety: "Toujours avec un pareur proche du maximum.", equip: "Barre + banc" },
+    { name: "Rowing barre", sets: 4, reps: "8 reps", rest: 90, diff: "Modéré", tips: "Équilibre l'effort poussée/tirage sur la séance.", safety: "Dos plat, tirez vers le nombril.", equip: "Barre" },
+    { name: "Développé militaire haltères", sets: 3, reps: "10 reps", rest: 75, diff: "Modéré", tips: "Volume complémentaire pour les épaules.", safety: "Gainage actif, évitez de cambrer.", equip: "Haltères" },
+    { name: "Dips lestés (pectoraux)", sets: 3, reps: "8 reps", rest: 75, diff: "Difficile", tips: "Ajoutez du lest une fois 12 reps au poids du corps atteintes.", safety: "Amplitude adaptée à votre mobilité d'épaule." },
+    { name: "Curl barre EZ", sets: 3, reps: "12 reps", rest: 60, diff: "Facile", tips: "Finisher biceps, coudes fixes.", safety: "Pas d'élan avec le dos.", equip: "Barre EZ" },
+  ],
+  force531Deadlift: [
+    { name: "Soulevé de terre", sets: 5, reps: "5 reps (charge ~75-85% du 1RM)", rest: 180, diff: "Difficile", tips: "Mouvement principal de la séance. Technique prioritaire sur la charge à tout moment.", safety: "Dos plat, barre proche des tibias tout du long.", equip: "Barre" },
+    { name: "Tirage horizontal poulie basse", sets: 3, reps: "10 reps", rest: 75, diff: "Modéré", tips: "Volume de dos complémentaire, plus léger que le mouvement principal.", safety: "Ne vous penchez pas en arrière.", equip: "Poulie basse" },
+    { name: "Hip thrust barre", sets: 3, reps: "10 reps", rest: 90, diff: "Modéré", tips: "Contraction fessière maximale en haut.", safety: "Barre bien callée sur les hanches, coussin recommandé.", equip: "Barre" },
+    { name: "Face pull", sets: 3, reps: "15 reps", rest: 45, diff: "Facile", tips: "Santé des épaules, tirez vers le visage.", safety: "Coudes hauts, mouvement contrôlé.", equip: "Poulie + corde" },
+    { name: "Gainage planche", sets: 3, reps: "45 sec", rest: 30, diff: "Facile", tips: "Corps aligné tête-talons.", safety: "Évitez le creux lombaire." },
+  ],
+  force531OHP: [
+    { name: "Développé militaire barre", sets: 5, reps: "5 reps (charge ~75-85% du 1RM)", rest: 180, diff: "Difficile", tips: "Mouvement principal de la séance. Même logique de progression que les 3 autres jours.", safety: "Gainage abdominal actif, ne cambrez pas le bas du dos.", equip: "Barre" },
+    { name: "Tractions assistées", sets: 4, reps: "8 reps", rest: 90, diff: "Modéré", tips: "Volume de dos, réduisez l'assistance progressivement.", safety: "Amplitude complète sans à-coup.", equip: "Machine assistance" },
+    { name: "Élévations latérales", sets: 3, reps: "15 reps", rest: 45, diff: "Facile", tips: "Légère flexion des coudes, montée jusqu'aux épaules.", safety: "Charge légère, priorité à la forme.", equip: "Haltères" },
+    { name: "Rowing haltère unilatéral", sets: 3, reps: "10 reps / bras", rest: 60, diff: "Modéré", tips: "Dos plat, tirez le coude vers la hanche.", safety: "Appui stable sur le banc.", equip: "Haltère + banc" },
+    { name: "Extension triceps poulie haute", sets: 3, reps: "12 reps", rest: 60, diff: "Facile", tips: "Coudes fixes le long du corps.", safety: "Amplitude complète sans balancer.", equip: "Poulie haute" },
+  ],
+  // --- PHUL (Power Hypertrophy Upper Lower) : jours force lourds + jours hypertrophie volume ---
+  hyperUpperPower: [
+    { name: "Développé couché barre", sets: 4, reps: "5 reps", rest: 150, diff: "Difficile", tips: "Jour force : charge lourde, faible volume.", safety: "Toujours avec un pareur proche du maximum.", equip: "Barre + banc" },
+    { name: "Rowing barre", sets: 4, reps: "5 reps", rest: 150, diff: "Difficile", tips: "Équilibre l'effort poussée/tirage à charge lourde.", safety: "Dos plat tout du long.", equip: "Barre" },
+    { name: "Développé militaire haltères", sets: 3, reps: "6 reps", rest: 90, diff: "Modéré", tips: "Charge lourde contrôlée.", safety: "Gainage actif.", equip: "Haltères" },
+    { name: "Tractions strictes", sets: 3, reps: "6 reps", rest: 90, diff: "Difficile", tips: "Ajoutez du lest si 8+ reps strictes sont acquises.", safety: "Amplitude complète.", equip: "Barre de traction" },
+    { name: "Curl barre EZ", sets: 3, reps: "8 reps", rest: 60, diff: "Modéré", tips: "Charge modérément lourde, forme stricte.", safety: "Pas d'élan.", equip: "Barre EZ" },
+    { name: "Extension triceps poulie haute", sets: 3, reps: "8 reps", rest: 60, diff: "Modéré", tips: "Charge modérément lourde.", safety: "Coudes fixes.", equip: "Poulie haute" },
+  ],
+  hyperLowerPower: [
+    { name: "Squat barre", sets: 4, reps: "5 reps", rest: 150, diff: "Difficile", tips: "Jour force : charge lourde, faible volume.", safety: "Rack de sécurité obligatoire.", equip: "Barre + rack" },
+    { name: "Soulevé de terre roumain", sets: 3, reps: "6 reps", rest: 120, diff: "Difficile", tips: "Charnière de hanche, jambes semi-tendues.", safety: "Dos neutre, ne arrondissez jamais.", equip: "Barre" },
+    { name: "Presse à cuisses", sets: 3, reps: "8 reps", rest: 90, diff: "Modéré", tips: "Charge lourde, amplitude complète.", safety: "Bas du dos plaqué au dossier.", equip: "Presse à cuisses" },
+    { name: "Mollets debout machine", sets: 4, reps: "8 reps", rest: 60, diff: "Modéré", tips: "Charge lourde, pause en haut.", safety: "Amplitude complète.", equip: "Machine mollets" },
+    { name: "Gainage lesté", sets: 3, reps: "40 sec", rest: 45, diff: "Modéré", tips: "Ajoutez du lest progressivement.", safety: "Dos plat." },
+  ],
+  hyperUpperHyper: [
+    { name: "Développé incliné haltères", sets: 4, reps: "12 reps", rest: 75, diff: "Modéré", tips: "Jour hypertrophie : volume élevé, charge modérée.", safety: "Contrôlez la descente.", equip: "Haltères + banc incliné" },
+    { name: "Écarté haltères banc plat", sets: 3, reps: "15 reps", rest: 60, diff: "Facile", tips: "Isolation pectoraux, légère flexion des coudes.", safety: "Amplitude sans douleur d'épaule.", equip: "Haltères + banc" },
+    { name: "Tirage horizontal poulie basse", sets: 4, reps: "12 reps", rest: 75, diff: "Modéré", tips: "Volume de dos, rapprochez les omoplates.", safety: "Ne vous penchez pas en arrière.", equip: "Poulie basse" },
+    { name: "Curl haltères alterné", sets: 3, reps: "12 reps", rest: 60, diff: "Facile", tips: "Alternance stricte, pas d'élan.", safety: "Coudes fixes.", equip: "Haltères" },
+    { name: "Extension triceps corde (overhead)", sets: 3, reps: "12 reps", rest: 60, diff: "Modéré", tips: "Étirement complet en haut.", safety: "Dos neutre.", equip: "Poulie + corde" },
+    { name: "Élévations latérales", sets: 3, reps: "15 reps", rest: 45, diff: "Facile", tips: "Finisher épaules, charge légère.", safety: "Priorité à la forme.", equip: "Haltères" },
+  ],
+  hyperLowerHyper: [
+    { name: "Squat gobelet", sets: 4, reps: "12 reps", rest: 75, diff: "Modéré", tips: "Jour hypertrophie : volume élevé, charge modérée.", safety: "Genoux dans l'axe des pieds.", equip: "Kettlebell/haltère" },
+    { name: "Leg curl allongé", sets: 4, reps: "12 reps", rest: 60, diff: "Modéré", tips: "Contraction complète des ischios.", safety: "Mouvement contrôlé.", equip: "Machine leg curl" },
+    { name: "Fentes marchées haltères", sets: 3, reps: "12 reps / jambe", rest: 60, diff: "Modéré", tips: "Pas long, buste droit.", safety: "Genou avant stable.", equip: "Haltères" },
+    { name: "Presse mollets", sets: 4, reps: "15 reps", rest: 45, diff: "Facile", tips: "Amplitude complète, pause en haut.", safety: "Mouvement contrôlé.", equip: "Presse à cuisses" },
+    { name: "Relevés de jambes suspendu", sets: 3, reps: "15 reps", rest: 45, diff: "Modéré", tips: "Finisher abdominaux/fléchisseurs de hanche.", safety: "Évitez le balancement.", equip: "Barre de traction" },
+  ],
+  // --- Full Body Métabolique (perte de poids en préservant la masse musculaire) ---
+  metabolicFullBody: [
+    { name: "Squat gobelet", sets: 4, reps: "12 reps", rest: 60, diff: "Modéré", tips: "Mouvement composé pour préserver la masse musculaire en déficit calorique.", safety: "Genoux dans l'axe des pieds.", equip: "Kettlebell/haltère" },
+    { name: "Développé couché haltères prise neutre", sets: 4, reps: "12 reps", rest: 60, diff: "Modéré", tips: "Repos court volontairement pour maintenir un effet métabolique.", safety: "Contrôlez la descente.", equip: "Haltères + banc" },
+    { name: "Rowing haltère unilatéral", sets: 3, reps: "12 reps / bras", rest: 60, diff: "Modéré", tips: "Dos plat, tirez le coude vers la hanche.", safety: "Appui stable sur le banc.", equip: "Haltère + banc" },
+    { name: "Soulevé de terre roumain haltères", sets: 3, reps: "12 reps", rest: 60, diff: "Modéré", tips: "Charnière de hanche, jambes semi-tendues.", safety: "Dos neutre, ne arrondissez jamais.", equip: "Haltères" },
+    { name: "Développé militaire haltères", sets: 3, reps: "12 reps", rest: 60, diff: "Modéré", tips: "Enchaîné rapidement pour garder la fréquence cardiaque élevée.", safety: "Gainage actif.", equip: "Haltères" },
+    { name: "Gainage dynamique (planche + touch épaule)", sets: 3, reps: "40 sec", rest: 30, diff: "Modéré", tips: "Finisher qui maintient la dépense calorique jusqu'à la fin.", safety: "Bassin stable, pas de rotation excessive." },
+  ],
 };
 
 /* ============================================================
@@ -247,6 +316,15 @@ const FOCUS_LABEL = {
   abs: "Abdominaux",
   home: "Full Body (Maison)",
   street: "Street Workout",
+  force531Squat: "5/3/1 · Squat",
+  force531Bench: "5/3/1 · Bench",
+  force531Deadlift: "5/3/1 · Deadlift",
+  force531OHP: "5/3/1 · Overhead Press",
+  hyperUpperPower: "PHUL · Upper Power",
+  hyperLowerPower: "PHUL · Lower Power",
+  hyperUpperHyper: "PHUL · Upper Hypertrophie",
+  hyperLowerHyper: "PHUL · Lower Hypertrophie",
+  metabolicFullBody: "Full Body Métabolique",
   custom: "Séance coach",
   repos: "Repos",
 };
@@ -427,6 +505,17 @@ const EXERCISE_LIBRARY = [
   ex("Street Workout", "home", "Front lever tuck (progression)", 3, "15 sec", 90, "Difficile", "Genoux repliés vers la poitrine, corps à l'horizontale.", "Progression exigeante, avancez petit à petit.", "Barre de traction"),
   ex("Street Workout", "home", "Human flag (progression négatifs)", 3, "3 reps / côté", 120, "Difficile", "Descente lente et contrôlée depuis la position haute.", "Nécessite un bon niveau de gainage préalable.", "Poteau ou barre verticale"),
   ex("Street Workout", "home", "Tractions australiennes lestées", 3, "12 reps", 60, "Modéré", "Corps gainé, tirez la poitrine vers la barre.", "Ajoutez une charge progressivement.", "Barre basse"),
+  // --- Exercices complémentaires identifiés (bibliothèque étendue) ---
+  ex("Dos", "gym", "Rowing Pendlay", 4, "6 reps", 100, "Difficile", "Barre reposée au sol entre chaque répétition, tirez explosivement.", "Dos plat tout du long, ne cambrez pas.", "Barre"),
+  ex("Dos", "gym", "Soulevé de terre sumo", 4, "6 reps", 120, "Difficile", "Pieds larges, prise resserrée entre les jambes.", "Genoux alignés avec les pieds, dos neutre.", "Barre"),
+  ex("Dos", "gym", "Épaulé (clean) barre", 3, "5 reps", 150, "Difficile", "Tirage explosif puis réception en position haute.", "Technique olympique exigeante, apprenez avec un coach avant de charger.", "Barre"),
+  ex("Dos", "gym", "Épaulé-jeté barre", 3, "3 reps", 180, "Difficile", "Enchaînement clean puis poussée explosive au-dessus de la tête.", "Mouvement technique, maîtrisez le clean seul d'abord.", "Barre"),
+  ex("Dos", "gym", "Tractions prise supination (chin-up)", 4, "8 reps", 90, "Difficile", "Prise mains vers vous, sollicite davantage les biceps.", "Amplitude complète, évitez de vous balancer.", "Barre de traction"),
+  ex("Pectoraux", "gym", "Développé au sol (floor press) barre", 4, "8 reps", 90, "Modéré", "Amplitude réduite par le sol, bon pour les triceps.", "Coudes ne touchent pas violemment le sol.", "Barre"),
+  ex("Pectoraux", "gym", "Développé incliné à la poulie", 4, "12 reps", 75, "Modéré", "Tension constante du début à la fin du mouvement.", "Réglez le banc à 30-45°.", "Poulie"),
+  ex("Ischios & Fessiers", "gym", "Adduction hanche machine", 3, "15 reps", 45, "Facile", "Mouvement contrôlé, pas d'à-coup.", "Réglez l'amplitude sur la machine.", "Machine adduction"),
+  ex("Quadriceps", "gym", "Squat overhead barre", 3, "6 reps", 120, "Difficile", "Barre tenue à bout de bras au-dessus de la tête tout du long.", "Nécessite une bonne mobilité d'épaules, technique avant charge.", "Barre"),
+  ex("Full Body / Maison", "gym", "Turkish get-up kettlebell", 3, "5 reps / côté", 90, "Difficile", "Séquence lente et contrôlée du sol à la position debout.", "Apprenez le mouvement à vide avant d'ajouter du poids.", "Kettlebell"),
 ];
 
 const PROGRAMS = [
@@ -490,6 +579,18 @@ const PROGRAMS = [
     goals: ["Progresser vers le muscle-up et le front lever", "Développer une force relative élevée", "Maîtriser les figures statiques"],
     desc: "Programme exigeant pour pratiquants confirmés : muscle-up, L-sit, front lever et human flag en progression.",
     cycle: ["street", "street", "repos", "street", "abs", "street", "repos"] },
+  { id: "531-strength", name: "5/3/1 Force Athlétique", cat: "Force", level: "Avancé", weeks: 12, location: "gym", icon: Dumbbell,
+    goals: ["Développer un force maximale sur les 4 mouvements de base", "Progression par cycles de 4 semaines (léger/moyen/lourd/deload)", "Construire une base de force durable"],
+    desc: "Basé sur la méthode 5/3/1 de Jim Wendler, référence du powerlifting : un mouvement principal lourd par séance (squat, développé couché, soulevé de terre, développé militaire), accompagné d'un travail d'accessoires ciblé. Nécessite un suivi rigoureux des charges — travaillez les pourcentages avec votre coach.",
+    cycle: ["force531Squat", "repos", "force531Bench", "repos", "force531Deadlift", "repos", "force531OHP"] },
+  { id: "phul-hypertrophy", name: "PHUL Hypertrophie", cat: "Hypertrophie", level: "Intermédiaire/Avancé", weeks: 10, location: "gym", icon: TrendingUp,
+    goals: ["Maximiser la prise de muscle avec un volume d'entraînement élevé", "Combiner force (charges lourdes) et hypertrophie (volume)", "Fréquence 2x/semaine par groupe musculaire"],
+    desc: "Basé sur la méthode PHUL (Power Hypertrophy Upper Lower), plébiscitée pour l'hypertrophie : deux séances \"force\" à charge lourde et faible volume, deux séances \"hypertrophie\" à charge modérée et volume élevé. Chaque groupe musculaire est travaillé deux fois par semaine, un rythme reconnu comme efficace pour la prise de masse.",
+    cycle: ["hyperUpperPower", "hyperLowerPower", "repos", "hyperUpperHyper", "hyperLowerHyper", "repos", "repos"] },
+  { id: "metabolic-fatloss", name: "Full Body Métabolique", cat: "Perte de poids", level: "Intermédiaire", weeks: 8, location: "gym", icon: Flame,
+    goals: ["Perdre du gras en préservant la masse musculaire", "Maintenir un métabolisme actif via des mouvements composés", "Alterner renforcement et conditionnement"],
+    desc: "Approche moderne de la perte de poids : contrairement au \"cardio seul\", ce programme garde des mouvements composés lourds (squat, développé, rowing, soulevé de terre) à repos courts pour préserver le muscle pendant le déficit calorique, alternés avec des séances de conditionnement HIIT pour maximiser la dépense énergétique.",
+    cycle: ["metabolicFullBody", "hiit", "repos", "metabolicFullBody", "hiit", "repos", "repos"] },
 ];
 
 function poolFor(program, dayType) {
@@ -767,6 +868,28 @@ function getSupplementSuggestions(goal) {
   return [...(byGoal[goal] || byGoal["Recomposition"]), ...common];
 }
 
+const APP_VERSION = "2026.08.06b";
+const PATCH_NOTES = [
+  {
+    version: "2026.08.06b",
+    date: "6 août 2026",
+    items: [
+      "3 nouveaux programmes pro dans la bibliothèque : 5/3/1 Force Athlétique, PHUL Hypertrophie, Full Body Métabolique.",
+      "Notes vocales dans la messagerie coach ↔ client.",
+      "Pièces jointes et accusés de lecture dans les messages.",
+    ],
+  },
+  {
+    version: "2026.08.06",
+    date: "6 août 2026",
+    items: [
+      "Calendrier multi-clients pour le coach : qui s'est entraîné quel jour, en un coup d'œil.",
+      "Vraie courbe de progression par exercice (charge dans le temps + 1RM estimé), côté client et côté coach.",
+      "Rappel de pesée juste après chaque séance.",
+    ],
+  },
+];
+
 const QUOTES = [
   "La discipline, c'est se souvenir de ce que l'on veut.",
   "Chaque séance vous rapproche de la meilleure version de vous-même.",
@@ -985,11 +1108,11 @@ const Card = ({ children, c, style, onClick, className }) => (
   }}>{children}</div>
 );
 
-const IconBtn = ({ icon: Icon, onClick, c, size = 38, active }) => (
-  <button onClick={onClick} style={{
+const IconBtn = ({ icon: Icon, onClick, c, size = 38, active, disabled }) => (
+  <button onClick={onClick} disabled={disabled} style={{
     width: size, height: size, borderRadius: 12, border: `1px solid ${c.border}`,
     background: active ? c.gradA : c.surface2, display: "flex", alignItems: "center", justifyContent: "center",
-    color: active ? "#fff" : c.text, cursor: "pointer", flexShrink: 0
+    color: active ? "#fff" : c.text, cursor: disabled ? "default" : "pointer", flexShrink: 0, opacity: disabled ? 0.5 : 1
   }}>
     <Icon size={17} />
   </button>
@@ -1626,6 +1749,133 @@ const Landing = ({ c, onStart, dark, setDark }) => {
 /* ============================================================
    INSTALL MODAL
 ============================================================ */
+const InstallPrompt = ({ c, onContinue }) => {
+  const [platform, setPlatform] = useState(null); // null | "ios" | "android"
+
+  return (
+    <div className="ff-body scrollbar-none anim-fadeIn" style={{ position: "relative", minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text, padding: 24, display: "flex", flexDirection: "column", justifyContent: "center", overflowY: "auto", overflowX: "hidden" }}>
+      <AnimatedBlobs c={c} />
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 380, margin: "0 auto", width: "100%" }}>
+        <div style={{ width: 60, height: 60, borderRadius: 18, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
+          <Download size={26} color="#fff" />
+        </div>
+        <h1 className="ff-display" style={{ fontSize: 20, fontWeight: 700, textAlign: "center", marginBottom: 8 }}>Installez l'application</h1>
+        <p style={{ color: c.muted, fontSize: 13, textAlign: "center", marginBottom: 26, lineHeight: 1.5 }}>
+          Ajoutez N2Koaching à votre écran d'accueil pour un accès instantané, comme une vraie app — plus rapide, en plein écran, sans passer par le navigateur.
+        </p>
+
+        {!platform && (
+          <div className="anim-fadeUp" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <button onClick={() => setPlatform("ios")} style={{
+              display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", borderRadius: 18,
+              border: `1.5px solid ${c.border}`, background: c.surface, cursor: "pointer", textAlign: "left"
+            }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="22" height="22" viewBox="0 0 384 512" fill={c.text}><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z" /></svg>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>iPhone / iPad</div>
+                <div style={{ fontSize: 11.5, color: c.muted }}>Safari</div>
+              </div>
+              <ChevronRight size={18} color={c.muted} />
+            </button>
+            <button onClick={() => setPlatform("android")} style={{
+              display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", borderRadius: 18,
+              border: `1.5px solid ${c.border}`, background: c.surface, cursor: "pointer", textAlign: "left"
+            }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="22" height="22" viewBox="0 0 48 48"><path fill="#34C759" d="M6 20h36v14a4 4 0 0 1-4 4H10a4 4 0 0 1-4-4V20Z" /><path d="M12 20V13a12 12 0 0 1 24 0v7" stroke="#34C759" strokeWidth="4" fill="none" /><circle cx="17" cy="26" r="2" fill="#fff" /><circle cx="31" cy="26" r="2" fill="#fff" /></svg>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>Android</div>
+                <div style={{ fontSize: 11.5, color: c.muted }}>Chrome</div>
+              </div>
+              <ChevronRight size={18} color={c.muted} />
+            </button>
+            <button onClick={onContinue} style={{ background: "none", border: "none", color: c.muted, fontSize: 12.5, cursor: "pointer", marginTop: 8 }}>
+              Passer cette étape
+            </button>
+          </div>
+        )}
+
+        {platform === "ios" && (
+          <div className="anim-stepSlide">
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+              {[
+                { n: 1, t: "Ouvrez ce site dans Safari", d: "L'installation ne fonctionne que depuis le navigateur Safari sur iPhone/iPad." },
+                { n: 2, t: "Appuyez sur le bouton Partager", d: "L'icône carrée avec une flèche vers le haut, en bas de l'écran." },
+                { n: 3, t: "Choisissez « Sur l'écran d'accueil »", d: "Faites défiler la liste des options si besoin." },
+                { n: 4, t: "Appuyez sur « Ajouter »", d: "L'icône N2Koaching apparaît alors sur votre écran d'accueil." },
+              ].map(s => (
+                <Card c={c} key={s.n} style={{ display: "flex", gap: 12, padding: 14 }}>
+                  <div className="ff-mono" style={{ width: 26, height: 26, borderRadius: "50%", background: c.gradA, color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{s.n}</div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{s.t}</div>
+                    <div style={{ fontSize: 11.5, color: c.muted, lineHeight: 1.4 }}>{s.d}</div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <SecondaryBtn c={c} onClick={() => setPlatform(null)} icon={ChevronLeft} style={{ flex: "0 0 auto" }} />
+              <PrimaryBtn c={c} full icon={Check} onClick={onContinue}>C'est fait, continuer</PrimaryBtn>
+            </div>
+          </div>
+        )}
+
+        {platform === "android" && (
+          <div className="anim-stepSlide">
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+              {[
+                { n: 1, t: "Ouvrez ce site dans Chrome", d: "L'installation fonctionne aussi depuis certains autres navigateurs Android." },
+                { n: 2, t: "Appuyez sur le menu ⋮", d: "Les trois points verticaux en haut à droite de l'écran." },
+                { n: 3, t: "Choisissez « Ajouter à l'écran d'accueil »", d: "Ou directement « Installer l'application » si la bannière apparaît." },
+                { n: 4, t: "Confirmez « Installer »", d: "L'icône N2Koaching apparaît alors sur votre écran d'accueil." },
+              ].map(s => (
+                <Card c={c} key={s.n} style={{ display: "flex", gap: 12, padding: 14 }}>
+                  <div className="ff-mono" style={{ width: 26, height: 26, borderRadius: "50%", background: c.gradA, color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{s.n}</div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{s.t}</div>
+                    <div style={{ fontSize: 11.5, color: c.muted, lineHeight: 1.4 }}>{s.d}</div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <SecondaryBtn c={c} onClick={() => setPlatform(null)} icon={ChevronLeft} style={{ flex: "0 0 auto" }} />
+              <PrimaryBtn c={c} full icon={Check} onClick={onContinue}>C'est fait, continuer</PrimaryBtn>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const WhatsNewModal = ({ c, onClose }) => (
+  <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end" }} onClick={onClose}>
+    <div onClick={e => e.stopPropagation()} className="anim-fadeUp" style={{
+      width: "100%", background: c.surface, borderRadius: "24px 24px 0 0", padding: "24px 20px calc(24px + env(safe-area-inset-bottom))", maxHeight: "75vh", overflowY: "auto"
+    }}>
+      <div style={{ width: 40, height: 4, background: c.border, borderRadius: 2, margin: "0 auto 20px" }} />
+      <div style={{ width: 52, height: 52, borderRadius: 16, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+        <Sparkles size={24} color="#fff" />
+      </div>
+      <h2 className="ff-display" style={{ fontSize: 18, fontWeight: 700, textAlign: "center", marginBottom: 4 }}>Quoi de neuf</h2>
+      <p style={{ fontSize: 11.5, color: c.muted, textAlign: "center", marginBottom: 20 }}>{PATCH_NOTES[0].date}</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 22 }}>
+        {PATCH_NOTES[0].items.map((item, i) => (
+          <div key={i} style={{ display: "flex", gap: 10 }}>
+            <CheckCircle2 size={16} color={c.success} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span style={{ fontSize: 13, lineHeight: 1.5 }}>{item}</span>
+          </div>
+        ))}
+      </div>
+      <PrimaryBtn c={c} full onClick={onClose}>Compris</PrimaryBtn>
+    </div>
+  </div>
+);
+
 const InstallModal = ({ c, onClose }) => (
   <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end" }} onClick={onClose}>
     <div className="anim-fadeUp" onClick={(e) => e.stopPropagation()} style={{ background: c.surface, width: "100%", borderRadius: "24px 24px 0 0", padding: 22, border: `1px solid ${c.border}` }}>
@@ -2264,13 +2514,20 @@ const MessageThread = ({ c, clientId, isAdmin, peerName }) => {
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [zoomUrl, setZoomUrl] = useState(null);
+  const [recording, setRecording] = useState(false);
+  const [recordError, setRecordError] = useState("");
   const bottomRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
 
   const load = async () => {
     try {
       const msgs = await listMessages(clientId);
       setMessages(msgs);
-      if (isAdmin) markMessagesRead(clientId).catch(() => {});
+      markMessagesRead(clientId, isAdmin).catch(() => {});
     } catch (e) { /* réseau indisponible */ }
     setLoading(false);
   };
@@ -2285,6 +2542,56 @@ const MessageThread = ({ c, clientId, isAdmin, peerName }) => {
     setSending(false);
   };
 
+  const handleAttach = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadMessageAttachment(file, clientId);
+      await sendMessage(clientId, text.trim() || null, isAdmin, url, "image");
+      setText("");
+      await load();
+    } catch (err) { /* échec silencieux, réessayer possible */ }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const startRecording = async () => {
+    setRecordError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        if (blob.size === 0) return;
+        setUploading(true);
+        try {
+          const file = new File([blob], `note-vocale-${Date.now()}.webm`, { type: "audio/webm" });
+          const url = await uploadMessageAttachment(file, clientId);
+          await sendMessage(clientId, null, isAdmin, url, "audio");
+          await load();
+        } catch (err) { /* échec silencieux */ }
+        setUploading(false);
+      };
+      mediaRecorderRef.current = mr;
+      mr.start();
+      setRecording(true);
+    } catch (e) {
+      setRecordError("Micro indisponible ou refusé.");
+    }
+  };
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") mediaRecorderRef.current.stop();
+    setRecording(false);
+  };
+
+  // Dernier message envoyé par "moi" dans le fil — c'est le seul sur lequel on affiche l'accusé de lecture
+  let lastMineIdx = -1;
+  messages.forEach((m, i) => { if (m.sender_is_admin === isAdmin) lastMineIdx = i; });
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div className="scrollbar-none" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, padding: "4px 2px" }}>
@@ -2294,26 +2601,48 @@ const MessageThread = ({ c, clientId, isAdmin, peerName }) => {
             Aucun message pour l'instant.<br />{isAdmin ? `Écrivez à ${peerName}.` : "Écrivez à votre coach."}
           </div>
         )}
-        {messages.map(m => {
+        {messages.map((m, i) => {
           const mine = m.sender_is_admin === isAdmin;
           return (
             <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "78%" }}>
-              <div style={{ background: mine ? c.gradA : c.surface2, color: mine ? "#fff" : c.text, borderRadius: 16, padding: "10px 13px", fontSize: 13, lineHeight: 1.45, borderBottomRightRadius: mine ? 4 : 16, borderBottomLeftRadius: mine ? 16 : 4 }}>
-                {m.content}
-              </div>
+              {m.attachment_url && m.attachment_type === "audio" && (
+                <audio controls src={m.attachment_url} style={{ width: 220, height: 34, marginBottom: m.content ? 4 : 0 }} />
+              )}
+              {m.attachment_url && m.attachment_type !== "audio" && (
+                <img src={m.attachment_url} alt="" onClick={() => setZoomUrl(m.attachment_url)}
+                  style={{ maxWidth: 200, maxHeight: 200, borderRadius: 14, display: "block", marginBottom: m.content ? 4 : 0, cursor: "pointer", objectFit: "cover" }} />
+              )}
+              {m.content && (
+                <div style={{ background: mine ? c.gradA : c.surface2, color: mine ? "#fff" : c.text, borderRadius: 16, padding: "10px 13px", fontSize: 13, lineHeight: 1.45, borderBottomRightRadius: mine ? 4 : 16, borderBottomLeftRadius: mine ? 16 : 4 }}>
+                  {m.content}
+                </div>
+              )}
               <div style={{ fontSize: 9.5, color: c.muted, marginTop: 3, textAlign: mine ? "right" : "left" }}>
                 {new Date(m.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                {mine && i === lastMineIdx && <span> · {m.read ? "Vu" : "Envoyé"}</span>}
               </div>
             </div>
           );
         })}
         <div ref={bottomRef} />
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <input style={{ ...inputStyle(c), flex: 1 }} placeholder="Écrire un message..." value={text}
-          onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") send(); }} />
-        <IconBtn icon={Send} c={c} active onClick={send} />
+      {recordError && <div style={{ fontSize: 11, color: c.danger, textAlign: "center", marginTop: 6 }}>{recordError}</div>}
+      <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
+        <IconBtn icon={Camera} c={c} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={recording || uploading} />
+        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAttach} style={{ display: "none" }} />
+        {recording ? (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: "rgba(255,59,48,0.1)", borderRadius: 14, padding: "10px 14px" }}>
+            <div className="anim-softPulse" style={{ width: 8, height: 8, borderRadius: "50%", background: c.danger }} />
+            <span style={{ fontSize: 12.5, color: c.danger, fontWeight: 600 }}>Enregistrement en cours...</span>
+          </div>
+        ) : (
+          <input style={{ ...inputStyle(c), flex: 1 }} placeholder={uploading ? "Envoi..." : "Écrire un message..."} value={text} disabled={uploading}
+            onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") send(); }} />
+        )}
+        <IconBtn icon={Mic} c={c} active={recording} onClick={recording ? stopRecording : startRecording} disabled={uploading} />
+        {!recording && <IconBtn icon={Send} c={c} active onClick={send} disabled={uploading} />}
       </div>
+      {zoomUrl && <PhotoViewer url={zoomUrl} onClose={() => setZoomUrl(null)} />}
     </div>
   );
 };
@@ -2434,6 +2763,40 @@ const SessionFeedbackForm = ({ c, onSubmit, onSkip }) => {
           <PrimaryBtn c={c} full icon={Check} disabled={saving} onClick={submit}>{saving ? "Envoi..." : "Envoyer à mon coach"}</PrimaryBtn>
           <button onClick={onSkip} style={{ background: "none", border: "none", color: c.muted, fontSize: 12, cursor: "pointer" }}>Passer cette fois</button>
         </div>
+      </div>
+    </div>
+  );
+};
+
+const WeightReminderPrompt = ({ c, currentWeight, onLog, onSkip }) => {
+  const [val, setVal] = useState(currentWeight || "");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (val === "" || isNaN(Number(val))) return;
+    setSaving(true);
+    await onLog(Number(val));
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 800, background: c.bg, backgroundImage: c.bgGrad, color: c.text, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} className="ff-body anim-fadeIn">
+      <div style={{ maxWidth: 340, width: "100%", textAlign: "center" }}>
+        <div style={{ width: 60, height: 60, borderRadius: 18, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
+          <TrendingUp size={26} color="#fff" />
+        </div>
+        <h1 className="ff-display" style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>Petit rappel</h1>
+        <p style={{ color: c.muted, fontSize: 13, marginBottom: 24, lineHeight: 1.5 }}>
+          N'oubliez pas de vous peser aujourd'hui pour garder un suivi précis de votre progression.
+        </p>
+        <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+          <input type="number" inputMode="decimal" value={val} onChange={e => setVal(e.target.value)} placeholder="Poids (kg)" autoFocus
+            style={{ flex: 1, textAlign: "center", background: c.surface, border: `1.5px solid ${c.border}`, borderRadius: 14, padding: "14px 10px", color: c.text, fontSize: 20, fontWeight: 700, outline: "none" }} className="ff-mono" />
+        </div>
+        <PrimaryBtn c={c} full icon={Check} disabled={val === "" || saving} onClick={submit} style={{ marginBottom: 10 }}>
+          {saving ? "Enregistrement..." : "Enregistrer mon poids"}
+        </PrimaryBtn>
+        <button onClick={onSkip} style={{ background: "none", border: "none", color: c.muted, fontSize: 12.5, cursor: "pointer" }}>Plus tard</button>
       </div>
     </div>
   );
@@ -3296,6 +3659,11 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
         </div>
       </Card>
 
+      <SectionTitle c={c}>Progression par exercice</SectionTitle>
+      <Card c={c} style={{ marginBottom: 18 }}>
+        <ExerciseProgressChart c={c} profileId={profileId} />
+      </Card>
+
       <SectionTitle c={c}>Badges & récompenses</SectionTitle>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 20 }}>
         {badgesUnlocked.map((b) => (
@@ -3652,6 +4020,163 @@ function fmtRelative(dateStr) {
   return `Il y a ${days} j`;
 }
 
+const ExerciseProgressChart = ({ c, profileId }) => {
+  const [names, setNames] = useState([]);
+  const [selected, setSelected] = useState("");
+  const [history, setHistory] = useState([]);
+  const [loadingNames, setLoadingNames] = useState(true);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  useEffect(() => {
+    if (!profileId) { setLoadingNames(false); return; }
+    listLoggedExerciseNames(profileId).then(ns => {
+      setNames(ns);
+      if (ns.length > 0) setSelected(ns[0]);
+    }).catch(() => {}).finally(() => setLoadingNames(false));
+  }, [profileId]);
+
+  useEffect(() => {
+    if (!selected || !profileId) return;
+    setLoadingHistory(true);
+    getExerciseHistory(profileId, selected).then(setHistory).catch(() => setHistory([])).finally(() => setLoadingHistory(false));
+  }, [selected, profileId]);
+
+  const chartData = useMemo(() => {
+    const byDate = {};
+    history.forEach(h => {
+      if (h.weight == null) return;
+      const day = new Date(h.loggedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+      if (!byDate[day] || h.weight > byDate[day].weight) byDate[day] = { day, weight: h.weight, reps: h.reps, ts: h.loggedAt };
+    });
+    return Object.values(byDate).sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  }, [history]);
+
+  const best = chartData.length ? Math.max(...chartData.map(d => d.weight)) : null;
+  const lastPoint = chartData[chartData.length - 1];
+  const lastReps = lastPoint ? Number(String(lastPoint.reps).match(/\d+/)?.[0] || 0) : 0;
+  const est1RM = lastPoint ? Math.round(lastPoint.weight * (1 + lastReps / 30)) : null;
+
+  if (loadingNames) return <div style={{ textAlign: "center", padding: 20, color: c.muted, fontSize: 12 }}>Chargement...</div>;
+  if (names.length === 0) return <div style={{ textAlign: "center", padding: 20, color: c.muted, fontSize: 12 }}>Aucun exercice loggé pour l'instant.</div>;
+
+  return (
+    <div>
+      <select value={selected} onChange={e => setSelected(e.target.value)} style={{ ...inputStyle(c), marginBottom: 12, padding: "9px 10px", fontSize: 12.5 }}>
+        {names.map(n => <option key={n} value={n}>{n}</option>)}
+      </select>
+      {loadingHistory ? (
+        <div style={{ textAlign: "center", padding: 20, color: c.muted, fontSize: 12 }}>Chargement...</div>
+      ) : chartData.length < 2 ? (
+        <div style={{ textAlign: "center", padding: 20, color: c.muted, fontSize: 12, lineHeight: 1.5 }}>Pas encore assez de séances loggées sur cet exercice pour tracer une courbe.</div>
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={150}>
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={c.border} vertical={false} />
+              <XAxis dataKey="day" tick={{ fill: c.muted, fontSize: 10.5 }} axisLine={false} tickLine={false} />
+              <YAxis hide domain={["dataMin - 2", "dataMax + 2"]} />
+              <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.border}`, borderRadius: 10, fontSize: 12 }} formatter={(v, n, p) => [`${v} kg × ${p.payload.reps}`, ""]} />
+              <Line type="monotone" dataKey="weight" stroke={c.electric2} strokeWidth={2.5} dot={{ r: 3, fill: c.electric2 }} />
+            </LineChart>
+          </ResponsiveContainer>
+          <div style={{ display: "flex", gap: 18, marginTop: 10 }}>
+            <div><div className="ff-mono" style={{ fontWeight: 700, fontSize: 15 }}>{best} kg</div><div style={{ fontSize: 10, color: c.muted }}>Meilleure charge</div></div>
+            <div><div className="ff-mono" style={{ fontWeight: 700, fontSize: 15 }}>~{est1RM} kg</div><div style={{ fontSize: 10, color: c.muted }}>1RM estimé</div></div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+const ClientChargesPanel = ({ c, client }) => {
+  const sessions = Object.entries(client.completedSessions || {})
+    .filter(([, entry]) => entry && entry.completedAt)
+    .map(([key, entry]) => ({ key, ...entry }))
+    .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))
+    .slice(0, 15);
+
+  const [expandedKey, setExpandedKey] = useState(null);
+  const [logsCache, setLogsCache] = useState({});
+  const [loadingKey, setLoadingKey] = useState(null);
+  const [mode, setMode] = useState("sessions");
+
+  const toggle = async (key) => {
+    if (expandedKey === key) { setExpandedKey(null); return; }
+    setExpandedKey(key);
+    if (!logsCache[key]) {
+      setLoadingKey(key);
+      try {
+        const logs = await getSessionExerciseLogs(client.id, key);
+        setLogsCache(c2 => ({ ...c2, [key]: logs }));
+      } catch (e) { /* rien à afficher */ }
+      setLoadingKey(null);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, background: c.surface, padding: 3, borderRadius: 10 }}>
+        {[{ id: "sessions", l: "Par séance" }, { id: "exercise", l: "Par exercice" }].map(m => (
+          <button key={m.id} onClick={() => setMode(m.id)} style={{
+            flex: 1, padding: "7px 0", borderRadius: 7, border: "none", cursor: "pointer",
+            background: mode === m.id ? c.gradA : "transparent", color: mode === m.id ? "#fff" : c.muted, fontWeight: 700, fontSize: 11.5
+          }}>{m.l}</button>
+        ))}
+      </div>
+
+      {mode === "exercise" && <ExerciseProgressChart c={c} profileId={client.id} />}
+
+      {mode === "sessions" && (
+        sessions.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 20, color: c.muted, fontSize: 12 }}>Aucune séance loggée avec détail des charges pour l'instant.</div>
+        ) : (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 420, overflowY: "auto" }}>
+      {sessions.map(s => (
+        <div key={s.key} style={{ background: c.surface, borderRadius: 12, overflow: "hidden" }}>
+          <div onClick={() => toggle(s.key)} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, cursor: "pointer" }}>
+            <div style={{ width: 30, height: 30, borderRadius: 9, background: "rgba(0,113,227,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Dumbbell size={14} color={c.electric2} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title || "Séance"}</div>
+              <div style={{ fontSize: 10.5, color: c.muted }}>{new Date(s.completedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })} · {s.minutes} min</div>
+            </div>
+            <ChevronRight size={15} color={c.muted} style={{ transform: expandedKey === s.key ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+          </div>
+          {expandedKey === s.key && (
+            <div style={{ padding: "0 12px 12px" }}>
+              {loadingKey === s.key ? (
+                <div style={{ textAlign: "center", padding: 10, color: c.muted, fontSize: 11.5 }}>Chargement...</div>
+              ) : !logsCache[s.key] || Object.keys(logsCache[s.key]).length === 0 ? (
+                <div style={{ textAlign: "center", padding: 10, color: c.muted, fontSize: 11.5 }}>Pas de détail de charges pour cette séance.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {Object.entries(logsCache[s.key]).map(([exerciseName, sets]) => (
+                    <div key={exerciseName} style={{ background: c.surface2, borderRadius: 10, padding: 10 }}>
+                      <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 6 }}>{exerciseName}</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {sets.sort((a, b) => a.setIndex - b.setIndex).map((set, i) => (
+                          <span key={i} className="ff-mono" style={{ fontSize: 11, background: c.surface, borderRadius: 8, padding: "4px 8px", color: c.text }}>
+                            {set.weight ?? "—"}kg × {set.reps}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+        )
+      )}
+    </div>
+  );
+};
+
 const ClientFeedbackPanel = ({ c, clientId }) => {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -3766,6 +4291,7 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
   const [showChat, setShowChat] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [showCharges, setShowCharges] = useState(false);
   const [zoomUrl, setZoomUrl] = useState(null);
   const [showRevokeForm, setShowRevokeForm] = useState(false);
   const [revokeReasonText, setRevokeReasonText] = useState("");
@@ -3845,15 +4371,16 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
             </button>
           )}
 
-          <div style={{ display: "flex", gap: 8, marginBottom: (editing || showChat || showPhotos || showFeedback) ? 12 : 8 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: (editing || showChat || showPhotos || showFeedback || showCharges) ? 12 : 8 }}>
             <select style={{ ...inputStyle(c), flex: 1, padding: "9px 10px", fontSize: 12.5 }} value={client.assignedProgramId || ""} onChange={e => onAssignLibrary(client, e.target.value)}>
               <option value="">— Assigner depuis la bibliothèque —</option>
               {PROGRAMS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
-            <SecondaryBtn c={c} icon={Edit3} onClick={() => { onOpenBuilder(client); setShowChat(false); setShowPhotos(false); setShowFeedback(false); }}>{editing ? "Fermer" : "Sur-mesure"}</SecondaryBtn>
-            <SecondaryBtn c={c} icon={MessageCircle} onClick={() => { setShowChat(!showChat); setShowPhotos(false); setShowFeedback(false); if (editing) onCloseBuilder(); }} />
-            <SecondaryBtn c={c} icon={Camera} onClick={() => { setShowPhotos(!showPhotos); setShowChat(false); setShowFeedback(false); if (editing) onCloseBuilder(); }} />
-            <SecondaryBtn c={c} icon={Activity} onClick={() => { setShowFeedback(!showFeedback); setShowChat(false); setShowPhotos(false); if (editing) onCloseBuilder(); }} />
+            <SecondaryBtn c={c} icon={Edit3} onClick={() => { onOpenBuilder(client); setShowChat(false); setShowPhotos(false); setShowFeedback(false); setShowCharges(false); }}>{editing ? "Fermer" : "Sur-mesure"}</SecondaryBtn>
+            <SecondaryBtn c={c} icon={MessageCircle} onClick={() => { setShowChat(!showChat); setShowPhotos(false); setShowFeedback(false); setShowCharges(false); if (editing) onCloseBuilder(); }} />
+            <SecondaryBtn c={c} icon={Camera} onClick={() => { setShowPhotos(!showPhotos); setShowChat(false); setShowFeedback(false); setShowCharges(false); if (editing) onCloseBuilder(); }} />
+            <SecondaryBtn c={c} icon={Activity} onClick={() => { setShowFeedback(!showFeedback); setShowChat(false); setShowPhotos(false); setShowCharges(false); if (editing) onCloseBuilder(); }} />
+            <SecondaryBtn c={c} icon={Dumbbell} onClick={() => { setShowCharges(!showCharges); setShowChat(false); setShowPhotos(false); setShowFeedback(false); if (editing) onCloseBuilder(); }} />
           </div>
           {editing && <ProgramBuilder c={c} client={client} onCancel={onCloseBuilder} onSave={(prog) => onSaveCustom(client, prog)}
             templates={templates} otherClients={otherClients} onSaveTemplate={onSaveTemplate} />}
@@ -3870,6 +4397,11 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
           {showFeedback && (
             <div style={{ background: c.surface2, borderRadius: 14, padding: 12, marginBottom: 8 }}>
               <ClientFeedbackPanel c={c} clientId={client.id} />
+            </div>
+          )}
+          {showCharges && (
+            <div style={{ background: c.surface2, borderRadius: 14, padding: 12, marginBottom: 8 }}>
+              <ClientChargesPanel c={c} client={client} />
             </div>
           )}
 
@@ -3906,6 +4438,79 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
   );
 };
 
+const MultiClientCalendar = ({ c, clients }) => {
+  const now = new Date();
+  const year = now.getFullYear(), month = now.getMonth();
+  const first = new Date(year, month, 1);
+  const startOffset = (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthName = now.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  const cells = [...Array(startOffset)].map(() => null).concat([...Array(daysInMonth)].map((_, i) => i + 1));
+
+  const dayClients = {};
+  clients.forEach(cl => {
+    Object.values(cl.completedSessions || {}).forEach(entry => {
+      if (!entry || !entry.completedAt) return;
+      const d = new Date(entry.completedAt);
+      if (d.getFullYear() === year && d.getMonth() === month) {
+        const day = d.getDate();
+        if (!dayClients[day]) dayClients[day] = new Set();
+        dayClients[day].add(cl.name);
+      }
+    });
+  });
+
+  const [selectedDay, setSelectedDay] = useState(now.getDate());
+  const selectedNames = dayClients[selectedDay] ? [...dayClients[selectedDay]] : [];
+
+  return (
+    <div>
+      <SectionTitle c={c}>{monthName.charAt(0).toUpperCase() + monthName.slice(1)}</SectionTitle>
+      <Card c={c} style={{ marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 6, marginBottom: 8 }}>
+          {["L", "M", "M", "J", "V", "S", "D"].map((d, i) => (
+            <div key={i} style={{ textAlign: "center", fontSize: 10.5, color: c.muted, fontWeight: 700 }}>{d}</div>
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 6 }}>
+          {cells.map((day, i) => {
+            if (!day) return <div key={i} />;
+            const count = dayClients[day] ? dayClients[day].size : 0;
+            const isToday = day === now.getDate();
+            const isSelected = day === selectedDay;
+            return (
+              <div key={i} onClick={() => setSelectedDay(day)} style={{
+                aspectRatio: "1", borderRadius: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer",
+                background: isSelected ? c.gradA : count > 0 ? "rgba(0,113,227,0.12)" : "transparent",
+                border: isSelected ? "none" : isToday ? `1.5px solid ${c.electric2}` : count === 0 ? `1px solid ${c.border}` : "none",
+              }}>
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: isSelected ? "#fff" : c.text }}>{day}</span>
+                {count > 0 && <span className="ff-mono" style={{ fontSize: 8.5, fontWeight: 700, color: isSelected ? "#fff" : c.electric2 }}>{count}</span>}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      <SectionTitle c={c}>{selectedDay} {monthName.split(" ")[0]} — {selectedNames.length} client{selectedNames.length !== 1 ? "s" : ""} actif{selectedNames.length !== 1 ? "s" : ""}</SectionTitle>
+      {selectedNames.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 24, color: c.muted, fontSize: 12.5 }}>Aucun client actif ce jour-là.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {selectedNames.map(name => (
+            <Card c={c} key={name} style={{ display: "flex", alignItems: "center", gap: 12, padding: 12 }}>
+              <div style={{ width: 30, height: 30, borderRadius: "50%", background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>
+                {name.charAt(0)}
+              </div>
+              <div style={{ fontSize: 12.5, fontWeight: 600 }}>{name}</div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const OverviewTab = ({ c, clients }) => {
   const today = clients.filter(a => fmtRelative(a.lastSessionAt) === "Aujourd'hui").length;
   const inactive = clients.filter(a => {
@@ -3914,12 +4519,79 @@ const OverviewTab = ({ c, clients }) => {
     return days >= 5;
   });
   const sorted = [...clients].sort((a, b) => new Date(b.lastSessionAt || 0) - new Date(a.lastSessionAt || 0));
+
+  const totalSessions = clients.reduce((sum, a) => sum + (a.sessionsCompleted || 0), 0);
+  const totalCalories = clients.reduce((sum, a) => sum + (a.calories || 0), 0);
+  const expiringSoon = clients.filter(a => {
+    if (!a.accessExpiresAt) return false;
+    const days = Math.ceil((new Date(a.accessExpiresAt) - new Date()) / 86400000);
+    return days >= 0 && days <= 7;
+  });
+
+  // Activité hebdomadaire agrégée : sessions de tous les clients, par jour de la semaine
+  const now = new Date();
+  const offset = (now.getDay() + 6) % 7;
+  const monday = new Date(now); monday.setHours(0, 0, 0, 0); monday.setDate(now.getDate() - offset);
+  const dayCounts = [0, 0, 0, 0, 0, 0, 0];
+  clients.forEach(a => {
+    Object.values(a.completedSessions || {}).forEach(entry => {
+      if (!entry || !entry.completedAt) return;
+      const d = new Date(entry.completedAt); d.setHours(0, 0, 0, 0);
+      const diff = Math.round((d.getTime() - monday.getTime()) / 86400000);
+      if (diff >= 0 && diff < 7) dayCounts[diff]++;
+    });
+  });
+  const weeklyActivity = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d, i) => ({ d, n: dayCounts[i] }));
+
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-        <Card c={c}><CheckCheck size={16} color={c.success} style={{ marginBottom: 8 }} /><div className="ff-mono" style={{ fontWeight: 700, fontSize: 20 }}>{today}</div><div style={{ fontSize: 11, color: c.muted }}>Séance loggée aujourd'hui</div></Card>
-        <Card c={c}><AlertTriangle size={16} color={c.danger} style={{ marginBottom: 8 }} /><div className="ff-mono" style={{ fontWeight: 700, fontSize: 20 }}>{inactive.length}</div><div style={{ fontSize: 11, color: c.muted }}>Inactifs 5j+</div></Card>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        {[
+          { icon: CheckCheck, v: today, l: "Loggé aujourd'hui", tone: c.success },
+          { icon: AlertTriangle, v: inactive.length, l: "Inactifs 5j+", tone: c.danger },
+          { icon: Flame, v: totalSessions.toLocaleString("fr-FR"), l: "Séances cumulées", tone: c.warning },
+          { icon: Hourglass, v: expiringSoon.length, l: "Abonnements expirant <7j", tone: expiringSoon.length > 0 ? c.warning : c.muted },
+        ].map((s, i) => (
+          <Card c={c} key={i} style={{ padding: 14 }}>
+            <div style={{ width: 30, height: 30, borderRadius: 9, background: "rgba(0,113,227,0.12)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
+              <s.icon size={15} color={s.tone} />
+            </div>
+            <div className="ff-mono" style={{ fontWeight: 700, fontSize: 18 }}>{s.v}</div>
+            <div style={{ fontSize: 10.5, color: c.muted, marginTop: 2 }}>{s.l}</div>
+          </Card>
+        ))}
       </div>
+
+      <SectionTitle c={c}>Activité de la semaine (tous clients)</SectionTitle>
+      <Card c={c} style={{ paddingTop: 16, marginBottom: 18 }}>
+        <ResponsiveContainer width="100%" height={120}>
+          <BarChart data={weeklyActivity}>
+            <XAxis dataKey="d" tick={{ fill: c.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis hide allowDecimals={false} />
+            <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.border}`, borderRadius: 10, fontSize: 12 }} formatter={(v) => [`${v} séance${v > 1 ? "s" : ""}`, ""]} />
+            <Bar dataKey="n" radius={[6, 6, 6, 6]} fill={c.electric} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>
+
+      {expiringSoon.length > 0 && (
+        <>
+          <SectionTitle c={c}>Abonnements à renouveler bientôt</SectionTitle>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
+            {expiringSoon.map(a => (
+              <Card c={c} key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, borderColor: c.warning }}>
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>
+                  {a.name.charAt(0)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600 }}>{a.name}</div>
+                <Pill c={c} tone="warning">{new Date(a.accessExpiresAt).toLocaleDateString("fr-FR")}</Pill>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
+
+      <SectionTitle c={c}>Activité par client</SectionTitle>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {sorted.map(a => {
           const days = a.lastSessionAt ? Math.floor((Date.now() - new Date(a.lastSessionAt).getTime()) / 86400000) : null;
@@ -3949,7 +4621,7 @@ const AdminPanel = ({ c, onExit }) => {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
-  const [tabAdmin, setTabAdmin] = useState("pending");
+  const [tabAdmin, setTabAdmin] = useState("overview");
   const [err, setErr] = useState("");
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [broadcastText, setBroadcastText] = useState("");
@@ -4023,10 +4695,28 @@ const AdminPanel = ({ c, onExit }) => {
         <Logo c={c} size={30} />
         <span className="ff-display" style={{ fontWeight: 700, fontSize: 16, flex: 1 }}>Espace coach</span>
         <IconBtn icon={RefreshCw} c={c} onClick={load} />
+        <IconBtn icon={LogOut} c={c} onClick={onExit} />
       </div>
 
       <div style={{ padding: 18 }}>
-        <SecondaryBtn c={c} full icon={LogOut} onClick={onExit} style={{ marginBottom: 16, color: c.danger }}>Déconnexion</SecondaryBtn>
+        <Card c={c} style={{ background: c.gradB, border: "none", marginBottom: 16 }}>
+          <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 12.5, marginBottom: 2 }}>Bon retour,</div>
+          <div className="ff-display" style={{ color: "#fff", fontWeight: 700, fontSize: 18, marginBottom: 10 }}>coach 👋</div>
+          <div style={{ display: "flex", gap: 16 }}>
+            <div>
+              <div className="ff-mono" style={{ color: "#fff", fontWeight: 700, fontSize: 20 }}>{clients.length}</div>
+              <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.75)" }}>clients actifs</div>
+            </div>
+            <div>
+              <div className="ff-mono" style={{ color: "#fff", fontWeight: 700, fontSize: 20 }}>{pending.length}</div>
+              <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.75)" }}>en attente</div>
+            </div>
+            <div>
+              <div className="ff-mono" style={{ color: "#fff", fontWeight: 700, fontSize: 20 }}>{approvedClients.filter(a => fmtRelative(a.lastSessionAt) === "Aujourd'hui").length}</div>
+              <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.75)" }}>actifs aujourd'hui</div>
+            </div>
+          </div>
+        </Card>
 
         {showBroadcast ? (
           <Card c={c} style={{ marginBottom: 16 }}>
@@ -4057,16 +4747,13 @@ const AdminPanel = ({ c, onExit }) => {
           </SecondaryBtn>
         )}
         {err && <div style={{ fontSize: 12, color: c.danger, background: "rgba(255,59,48,0.1)", padding: "10px 12px", borderRadius: 10, marginBottom: 14 }}>{err}</div>}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
-          <Card c={c}><Users size={16} color={c.electric2} style={{ marginBottom: 8 }} /><div className="ff-mono" style={{ fontWeight: 700, fontSize: 20 }}>{clients.length}</div><div style={{ fontSize: 11, color: c.muted }}>Clients actifs</div></Card>
-          <Card c={c}><ClipboardList size={16} color={c.warning} style={{ marginBottom: 8 }} /><div className="ff-mono" style={{ fontWeight: 700, fontSize: 20 }}>{pending.length}</div><div style={{ fontSize: 11, color: c.muted }}>En attente</div></Card>
-        </div>
 
         <div className="scrollbar-none" style={{ display: "flex", gap: 8, marginBottom: 16, background: c.surface2, padding: 4, borderRadius: 12, overflowX: "auto" }}>
           {[
+            { id: "overview", l: "Vue d'ensemble", icon: LayoutDashboard },
+            { id: "calendar", l: "Calendrier", icon: CalendarIcon },
             { id: "pending", l: `À valider (${pending.length})`, icon: ClipboardList },
             { id: "clients", l: `Clients (${clients.length})`, icon: Users },
-            { id: "overview", l: "Vue d'ensemble", icon: LayoutDashboard },
           ].map(t => (
             <button key={t.id} onClick={() => setTabAdmin(t.id)} style={{
               flex: "1 0 auto", padding: "10px 12px", borderRadius: 9, border: "none", cursor: "pointer",
@@ -4105,6 +4792,7 @@ const AdminPanel = ({ c, onExit }) => {
               ))
             )}
             {tabAdmin === "overview" && <OverviewTab c={c} clients={approvedClients} />}
+            {tabAdmin === "calendar" && <MultiClientCalendar c={c} clients={approvedClients} />}
           </>
         )}
 
@@ -4137,6 +4825,21 @@ export default function App() {
   const [showInstall, setShowInstall] = useState(false);
   const [reward, setReward] = useState(null);
   const [feedbackPrompt, setFeedbackPrompt] = useState(null);
+  const [showWeightReminder, setShowWeightReminder] = useState(false);
+  const [showWhatsNew, setShowWhatsNew] = useState(false);
+
+  useEffect(() => {
+    if (screen !== "app") return;
+    try {
+      const lastSeen = localStorage.getItem("n2k_last_seen_version");
+      if (lastSeen !== APP_VERSION) setShowWhatsNew(true);
+    } catch (e) { /* stockage indisponible, tant pis */ }
+  }, [screen]);
+
+  const dismissWhatsNew = () => {
+    try { localStorage.setItem("n2k_last_seen_version", APP_VERSION); } catch (e) { /* ignore */ }
+    setShowWhatsNew(false);
+  };
   const [quote] = useState(QUOTES[Math.floor(Math.random() * QUOTES.length)]);
   const [water, setWater] = useState(3);
   const [completedSessions, setCompletedSessions] = useState({});
@@ -4147,6 +4850,7 @@ export default function App() {
     age: null, gender: null, injuries: "", avatarUrl: null, streakFreezeUsedAt: null, accessExpiresAt: null,
   });
   const saveTimer = useRef(null);
+  const pendingRouteRef = useRef(null);
 
   const applyProfile = (profile) => {
     setState({
@@ -4215,7 +4919,7 @@ export default function App() {
     await completeOnboarding(profileId, fields);
     setState(s => ({ ...s, weight: fields.weight, height: fields.height, age: fields.age, gender: fields.gender, goal: fields.goal, trainingFrequency: fields.trainingFrequency, injuries: fields.injuries }));
     const profile = await getSessionProfile();
-    if (profile) routeProfile(profile);
+    if (profile) { pendingRouteRef.current = profile; setScreen("installPrompt"); }
     else setScreen("pending");
   };
 
@@ -4289,6 +4993,13 @@ export default function App() {
   if (screen === "onboarding") {
     return <><GlobalStyle /><Onboarding c={c} name={state.name} onComplete={handleOnboardingComplete} /></>;
   }
+  if (screen === "installPrompt") {
+    return <><GlobalStyle /><InstallPrompt c={c} onContinue={() => {
+      const profile = pendingRouteRef.current;
+      pendingRouteRef.current = null;
+      if (profile) routeProfile(profile); else setScreen("pending");
+    }} /></>;
+  }
   if (screen === "admin") {
     return <><GlobalStyle /><AdminPanel c={c} onExit={logout} /></>;
   }
@@ -4344,6 +5055,7 @@ export default function App() {
       </div>
       <Drawer c={c} open={drawerOpen} onClose={() => setDrawerOpen(false)} tab={tab} setTab={goTab} profile={state} onLogout={logout} />
       {showInstall && <InstallModal c={c} onClose={() => setShowInstall(false)} />}
+      {showWhatsNew && <WhatsNewModal c={c} onClose={dismissWhatsNew} />}
       {reward && <RewardToast reward={reward} c={c} onClose={() => setReward(null)} />}
       {feedbackPrompt && (
         <SessionFeedbackForm c={c}
@@ -4352,8 +5064,23 @@ export default function App() {
               try { await submitSessionFeedback(profileId, feedbackPrompt.sessionKey, data); } catch (e) { /* réessaiera pas, non bloquant */ }
             }
             setFeedbackPrompt(null);
+            setShowWeightReminder(true);
           }}
-          onSkip={() => setFeedbackPrompt(null)}
+          onSkip={() => { setFeedbackPrompt(null); setShowWeightReminder(true); }}
+        />
+      )}
+      {showWeightReminder && (
+        <WeightReminderPrompt c={c} currentWeight={state.weight}
+          onLog={async (w) => {
+            if (profileId) {
+              try {
+                await logWeight(profileId, w);
+                setState(s => ({ ...s, weight: w }));
+              } catch (e) { /* réessaiera manuellement depuis le Profil */ }
+            }
+            setShowWeightReminder(false);
+          }}
+          onSkip={() => setShowWeightReminder(false)}
         />
       )}
     </>

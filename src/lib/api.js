@@ -465,6 +465,36 @@ export async function createCustomExercise(fields) {
   return customExerciseRowToApp(data);
 }
 
+/** Liste les noms d'exercices distincts déjà loggés par ce profil (pour peupler
+ *  un sélecteur "voir la progression sur..."), triés par date de dernier usage. */
+export async function listLoggedExerciseNames(profileId) {
+  const { data, error } = await supabase
+    .from("exercise_logs")
+    .select("exercise_name, logged_at")
+    .eq("profile_id", profileId)
+    .order("logged_at", { ascending: false });
+  if (error) throw error;
+  const seen = new Set();
+  const names = [];
+  (data || []).forEach(r => { if (!seen.has(r.exercise_name)) { seen.add(r.exercise_name); names.push(r.exercise_name); } });
+  return names;
+}
+
+/** Historique complet des séries loggées pour un exercice précis, pour tracer
+ *  un graphique de progression de charge dans le temps. */
+export async function getExerciseHistory(profileId, exerciseName) {
+  const { data, error } = await supabase
+    .from("exercise_logs")
+    .select("*")
+    .eq("profile_id", profileId)
+    .eq("exercise_name", exerciseName)
+    .order("logged_at", { ascending: true });
+  if (error) throw error;
+  return (data || []).map(r => ({ weight: r.weight, reps: r.reps, loggedAt: r.logged_at, setIndex: r.set_index }));
+}
+
+
+
 /* ---------------- Photos de référence par exercice ---------------- */
 
 export async function uploadExercisePhoto(file) {
@@ -488,16 +518,30 @@ export async function listMessages(clientId) {
   return data;
 }
 
-export async function sendMessage(clientId, content, senderIsAdmin) {
+export async function sendMessage(clientId, content, senderIsAdmin, attachmentUrl, attachmentType) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Non connecté.");
   const { error } = await supabase.from("messages").insert({
-    client_id: clientId, sender_id: session.user.id, sender_is_admin: !!senderIsAdmin, content,
+    client_id: clientId, sender_id: session.user.id, sender_is_admin: !!senderIsAdmin,
+    content: content || null, attachment_url: attachmentUrl || null, attachment_type: attachmentType || null,
   });
   if (error) throw error;
 }
 
-export async function markMessagesRead(clientId) {
-  const { error } = await supabase.from("messages").update({ read: true }).eq("client_id", clientId);
+export async function uploadMessageAttachment(file, clientId) {
+  const ext = file.name.split(".").pop();
+  const path = `${clientId}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from("message-attachments").upload(path, file);
+  if (error) throw error;
+  const { data } = supabase.storage.from("message-attachments").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+/** Marque comme lus les messages envoyés par l'AUTRE partie (pas les siens) —
+ *  readerIsAdmin=true (coach qui lit) marque les messages du client comme lus,
+ *  et inversement, pour un vrai accusé de lecture. */
+export async function markMessagesRead(clientId, readerIsAdmin) {
+  const { error } = await supabase.from("messages").update({ read: true })
+    .eq("client_id", clientId).eq("sender_is_admin", !readerIsAdmin);
   if (error) throw error;
 }
