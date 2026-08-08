@@ -7,6 +7,7 @@ function rowToProfile(row) {
     id: row.id,
     email: row.email,
     name: row.name,
+    createdAt: row.created_at,
     weight: row.weight,
     height: row.height,
     goal: row.goal,

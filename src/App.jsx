@@ -8,9 +8,10 @@ import {
   Building2, HomeIcon, Coffee, UserPlus, LogIn, Eye, EyeOff, Users,
   ClipboardList, ShieldCheck, XCircle, Send, Edit3, Hourglass, RefreshCw,
   UserCog, MailX, Copy, Bookmark, MessageCircle, AlertTriangle, CheckCheck,
-  LayoutDashboard, PlayCircle, Camera, RotateCcw, Mic
+  LayoutDashboard, PlayCircle, Camera, RotateCcw, Mic, Search, FileText, ChevronUp
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient.js";
+import { analyzeProgramWithAI, getStoredApiKey, storeApiKey, clearApiKey } from "./lib/aiAnalysis.js";
 import {
   signUp, signIn, signOut, getSessionProfile, updateOwnProgress, markSessionDone, completeOnboarding,
   listAllProfiles, setProfileStatus, assignLibraryProgram, assignCustomProgram, revokeAccess, restoreAccess,
@@ -593,6 +594,341 @@ const PROGRAMS = [
     cycle: ["metabolicFullBody", "hiit", "repos", "metabolicFullBody", "hiit", "repos", "repos"] },
 ];
 
+/** Trouve un exercice de remplacement dans la même catégorie musculaire
+ *  (ex: "machine indisponible"), en évitant les doublons avec la séance en cours. */
+function findSubstitute(exercise, currentList) {
+  const usedNames = new Set(currentList.map(e => e.name));
+  const candidates = EXERCISE_LIBRARY.filter(e =>
+    e.cat === exercise.cat && e.name !== exercise.name && !usedNames.has(e.name) &&
+    (e.location === exercise.location || e.location === "both" || exercise.location === "both")
+  );
+  if (candidates.length === 0) return null;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+/** Analyse gratuite et locale d'un programme, basée sur des repères réels de
+ *  science du sport (volume hebdomadaire par groupe musculaire, équilibre
+ *  push/pull, récupération, ordre des exercices, adéquation reps/objectif).
+ *  Aucune clé API, aucun appel réseau — tout se calcule dans le navigateur. */
+/** Répartition anatomique fine par exercice, basée sur la biomécanique réelle
+ *  (quel chef musculaire un mouvement sollicite préférentiellement). Sert à
+ *  détecter les angles de travail manquants au sein d'un même groupe. */
+const SUB_MUSCLE_RULES = {
+  "Biceps": [
+    { name: "Chef long (pic du biceps)", keywords: ["incliné", "araignée", "spider", "curl allongé"] },
+    { name: "Chef court", keywords: ["pupitre", "preacher", "concentré", "scott"] },
+    { name: "Brachial (épaisseur du bras)", keywords: ["marteau", "hammer", "neutre"] },
+  ],
+  "Triceps": [
+    { name: "Chef long (le plus gros des 3)", keywords: ["nuque", "overhead", "au-dessus", "barre au front", "skull", "français"] },
+    { name: "Chef latéral", keywords: ["poulie", "pushdown", "corde"] },
+    { name: "Chef médial", keywords: ["dips", "serré", "close"] },
+  ],
+  "Dos": [
+    { name: "Grand dorsal (largeur du dos)", keywords: ["traction", "tirage vertical", "pulldown", "lat"] },
+    { name: "Trapèzes / milieu du dos", keywords: ["shrug", "rowing", "row", "face pull"] },
+    { name: "Érecteurs spinaux (bas du dos)", keywords: ["soulevé de terre", "extension lombaire", "hyperextension", "back extension"] },
+  ],
+  "Épaules": [
+    { name: "Deltoïde antérieur (avant)", keywords: ["militaire", "développé épaules", "frontale", "overhead press", "arnold"] },
+    { name: "Deltoïde latéral (largeur)", keywords: ["latérale", "lateral raise"] },
+    { name: "Deltoïde postérieur (arrière)", keywords: ["oiseau", "face pull", "arrière", "rear delt"] },
+  ],
+  "Pectoraux": [
+    { name: "Faisceau supérieur (haut des pecs)", keywords: ["incliné"] },
+    { name: "Faisceau sternal (milieu/bas)", keywords: ["décliné", "plat", "flat", "pec deck", "écarté"] },
+  ],
+  "Quadriceps": [
+    { name: "Ensemble des vastes", keywords: ["squat", "presse", "leg press", "fente", "hack", "pistol", "bulgare"] },
+    { name: "Droit fémoral (isolé, genou)", keywords: ["extension", "leg extension"] },
+  ],
+  "Ischios & Fessiers": [
+    { name: "Ischio-jambiers", keywords: ["leg curl", "roumain", "romanian", "curl ischio", "nordic"] },
+    { name: "Grand fessier", keywords: ["hip thrust", "pont fessier", "glute bridge", "squat", "fente", "soulevé de terre"] },
+  ],
+  "Mollets": [
+    { name: "Gastrocnémien (jumeaux, genou tendu)", keywords: ["debout", "standing", "presse"] },
+    { name: "Soléaire (genou fléchi)", keywords: ["assis", "seated"] },
+  ],
+  "Abdominaux": [
+    { name: "Grand droit (\"tablettes\")", keywords: ["crunch", "relevé", "leg raise", "genou"] },
+    { name: "Obliques (côtés)", keywords: ["rotation", "oblique", "twist", "côté", "russian"] },
+    { name: "Gainage profond (transverse)", keywords: ["planche", "plank", "gainage"] },
+  ],
+};
+
+const INJURY_RISK_MAP = [
+  { zone: "genou", keywords: ["genou", "genoux", "knee"], riskyExercises: ["squat profond", "pistol", "fente sautée", "leg extension", "squat"] },
+  { zone: "épaule", keywords: ["épaule", "epaule", "shoulder"], riskyExercises: ["développé militaire", "développé nuque", "élévation latérale", "dips", "overhead", "arnold"] },
+  { zone: "dos / lombaires", keywords: ["dos", "lombaire", "lombalgie", "back"], riskyExercises: ["soulevé de terre", "rowing barre", "extension lombaire", "good morning"] },
+  { zone: "poignet", keywords: ["poignet", "wrist"], riskyExercises: ["développé couché barre", "pompes", "planche", "squat overhead"] },
+  { zone: "cheville", keywords: ["cheville", "ankle"], riskyExercises: ["squat", "fente", "mollets", "sauté", "box jump"] },
+  { zone: "coude", keywords: ["coude", "elbow", "épicondylite", "tennis elbow"], riskyExercises: ["extension triceps", "curl", "dips", "développé couché"] },
+  { zone: "hanche", keywords: ["hanche", "hip"], riskyExercises: ["squat", "fente", "hip thrust", "soulevé de terre"] },
+];
+
+function analyzeProgramLocally(program, client) {
+  const strengths = [];
+  const weaknesses = [];
+  const recommendations = [];
+  let score = 10;
+  const level = client?.sportLevel || "Intermédiaire";
+  const isBeginner = level === "Débutant";
+  const isAdvanced = level === "Avancé";
+
+  const days = (program.customSessions || []).filter(d => !d.rest && d.exercises && d.exercises.length > 0);
+  const restDays = 7 - days.length;
+
+  // --- Croisement avec les blessures signalées à l'inscription ---
+  if (client?.injuries && client.injuries.trim()) {
+    const injuryText = client.injuries.toLowerCase();
+    const allExercises = days.flatMap(d => d.exercises);
+    INJURY_RISK_MAP.forEach(risk => {
+      if (!risk.keywords.some(k => injuryText.includes(k))) return;
+      const flagged = allExercises.filter(e => risk.riskyExercises.some(r => e.name.toLowerCase().includes(r)));
+      if (flagged.length > 0) {
+        const uniqueNames = [...new Set(flagged.map(e => e.name))];
+        weaknesses.push(`⚠️ ${client.name || "Ce client"} a signalé une gêne au niveau "${risk.zone}" (blessure déclarée : "${client.injuries}"). Le programme contient : ${uniqueNames.join(", ")} — à valider avec le client avant de maintenir ces exercices tels quels, ou à adapter (charge réduite, amplitude limitée, variante).`);
+        score -= 1;
+      }
+    });
+  }
+
+  // --- Volume hebdomadaire par groupe musculaire (nb de séries) ---
+  const volumeByCategory = {};
+  days.forEach(d => d.exercises.forEach(e => {
+    volumeByCategory[e.cat] = (volumeByCategory[e.cat] || 0) + (Number(e.sets) || 0);
+  }));
+
+  const MAJOR_GROUPS = ["Pectoraux", "Dos", "Épaules", "Quadriceps", "Ischios & Fessiers"];
+  const ALL_MUSCLE_GROUPS = ["Pectoraux", "Dos", "Épaules", "Biceps", "Triceps", "Quadriceps", "Ischios & Fessiers", "Mollets", "Abdominaux"];
+
+  // --- Répartition complète du volume par muscle (pour la visualisation) ---
+  const totalVolume = ALL_MUSCLE_GROUPS.reduce((sum, cat) => sum + (volumeByCategory[cat] || 0), 0);
+  const muscleBreakdown = ALL_MUSCLE_GROUPS.map(cat => ({
+    cat, sets: volumeByCategory[cat] || 0,
+    pct: totalVolume > 0 ? Math.round(((volumeByCategory[cat] || 0) / totalVolume) * 100) : 0,
+  }));
+  const untouchedMuscles = muscleBreakdown.filter(m => m.sets === 0).map(m => m.cat);
+  if (untouchedMuscles.length > 0 && days.length >= 3) {
+    weaknesses.push(`Aucun volume détecté sur : ${untouchedMuscles.join(", ")}. À vérifier que c'est intentionnel (spécialisation, contre-indication) plutôt qu'un oubli.`);
+    score -= untouchedMuscles.length >= 3 ? 1 : 0.5;
+  }
+
+  // --- Détail anatomique fin : quels chefs musculaires sont réellement couverts ---
+  // Pour un débutant, la variété d'angles compte moins qu'un volume total cohérent —
+  // on affiche quand même le détail, mais on ne pénalise/recommande que pour
+  // intermédiaire et avancé, où l'optimisation fine a plus de sens.
+  const subMuscleDetail = [];
+  ALL_MUSCLE_GROUPS.forEach(cat => {
+    const rules = SUB_MUSCLE_RULES[cat];
+    if (!rules || (volumeByCategory[cat] || 0) === 0) return;
+    const exercisesInCat = days.flatMap(d => d.exercises.filter(e => e.cat === cat));
+    const covered = rules.map(rule => {
+      const hit = exercisesInCat.some(e => rule.keywords.some(k => e.name.toLowerCase().includes(k)));
+      return { name: rule.name, covered: hit };
+    });
+    subMuscleDetail.push({ cat, subMuscles: covered });
+    const missing = covered.filter(s => !s.covered);
+    if (missing.length > 0 && missing.length < rules.length && !isBeginner) {
+      recommendations.push(`${cat} : aucun exercice ne cible spécifiquement "${missing.map(m => m.name).join(", ")}" — ajouter un mouvement dans cet angle pour un développement complet, pas seulement un volume total suffisant.`);
+    }
+  });
+
+  // Repères de volume ajustés au niveau : un débutant a un seuil minimum efficace (MEV)
+  // plus bas, un pratiquant avancé tolère (et a souvent besoin) de plus de volume.
+  const lowThreshold = isBeginner ? 5 : isAdvanced ? 10 : 8;
+  const highThreshold = isBeginner ? 20 : isAdvanced ? 30 : 26;
+  const lowVolume = [];
+  const highVolume = [];
+  MAJOR_GROUPS.forEach(cat => {
+    const v = volumeByCategory[cat] || 0;
+    if (v === 0) return; // catégorie pas du tout travaillée, pas forcément un problème selon le programme
+    if (v < lowThreshold) lowVolume.push({ cat, v });
+    if (v > highThreshold) highVolume.push({ cat, v });
+  });
+  if (lowVolume.length > 0) {
+    weaknesses.push(`Volume potentiellement insuffisant pour un niveau ${level.toLowerCase()} : ${lowVolume.map(x => `${x.cat} (${x.v} séries/semaine)`).join(", ")}. Repère indicatif pour ce niveau : au moins ${lowThreshold} séries/semaine/groupe.`);
+    score -= 1;
+  }
+  if (highVolume.length > 0) {
+    weaknesses.push(`Volume potentiellement excessif pour un niveau ${level.toLowerCase()} : ${highVolume.map(x => `${x.cat} (${x.v} séries/semaine)`).join(", ")}. Au-delà de ~${highThreshold} séries/semaine par groupe à ce niveau, le risque de non-récupération augmente sans gain supplémentaire garanti.`);
+    score -= 1;
+  }
+  if (lowVolume.length === 0 && highVolume.length === 0 && Object.keys(volumeByCategory).length > 0) {
+    strengths.push(`Le volume hebdomadaire par groupe musculaire est cohérent avec un niveau ${level.toLowerCase()} (ni insuffisant, ni excessif).`);
+  }
+
+  // --- Fatigue cumulée : plusieurs mouvements lourds sur la même chaîne le même jour ---
+  const HEAVY_LOWER_HINTS = ["squat", "soulevé de terre", "presse à cuisses lourde", "hip thrust barre"];
+  days.forEach(d => {
+    const heavyLowerCount = d.exercises.filter(e => HEAVY_LOWER_HINTS.some(h => e.name.toLowerCase().includes(h)) && (Number(e.sets) || 0) >= 3).length;
+    if (heavyLowerCount >= 2) {
+      weaknesses.push(`${d.title || "Une séance"} combine plusieurs mouvements lourds sollicitant fortement la même chaîne (squat + soulevé de terre par exemple) — la fatigue cumulée sur la charnière de hanche et le bas du dos peut compromettre la technique sur le second mouvement.`);
+      recommendations.push("Séparer les mouvements les plus lourds sur des jours différents, ou réduire le volume de l'un des deux quand ils sont sur la même séance.");
+      score -= 0.5;
+    }
+  });
+
+  // --- Équilibre push/pull ---
+  const pushVolume = (volumeByCategory["Pectoraux"] || 0) + (volumeByCategory["Épaules"] || 0) + (volumeByCategory["Triceps"] || 0);
+  const pullVolume = (volumeByCategory["Dos"] || 0) + (volumeByCategory["Biceps"] || 0);
+  if (pushVolume > 0 && pullVolume > 0) {
+    const ratio = pushVolume / pullVolume;
+    if (ratio > 1.5) {
+      weaknesses.push(`Déséquilibre poussée/tirage : ${pushVolume} séries de poussée contre ${pullVolume} de tirage. Un excès de volume en poussée par rapport au tirage est un facteur de risque connu pour la posture (épaules enroulées) et les douleurs d'épaule.`);
+      recommendations.push("Rééquilibrer en ajoutant du volume de tirage (rowing, tractions, tirage vertical) ou en réduisant légèrement le volume de poussée.");
+      score -= 1;
+    } else if (ratio < 0.6) {
+      weaknesses.push(`Le volume de tirage (${pullVolume} séries) dépasse largement celui de poussée (${pushVolume} séries) — à vérifier que ce déséquilibre est intentionnel.`);
+      score -= 0.5;
+    } else {
+      strengths.push("Bon équilibre entre volume de poussée et de tirage — un facteur protecteur pour la santé des épaules à long terme.");
+    }
+  }
+
+  // --- Récupération / répartition des séances ---
+  let maxConsecutive = 0, current = 0;
+  (program.customSessions || []).forEach(d => {
+    if (d.rest || !d.exercises || d.exercises.length === 0) { current = 0; }
+    else { current++; maxConsecutive = Math.max(maxConsecutive, current); }
+  });
+  if (maxConsecutive >= 5) {
+    weaknesses.push(`${maxConsecutive} jours d'entraînement consécutifs sans repos dans le cycle. Un enchaînement aussi long augmente le risque de fatigue accumulée, surtout pour un pratiquant non avancé.`);
+    recommendations.push("Intercaler au moins un jour de repos tous les 3-4 jours d'entraînement.");
+    score -= 1;
+  } else if (restDays >= 1) {
+    strengths.push(`Répartition raisonnable avec ${restDays} jour${restDays > 1 ? "s" : ""} de repos dans la semaine, sans enchaînement excessif.`);
+  }
+  if (restDays === 0) {
+    weaknesses.push("Aucun jour de repos complet dans le cycle hebdomadaire — un minimum d'un jour de récupération complète par semaine est généralement recommandé.");
+    score -= 1;
+  }
+
+  // --- Ordre des exercices (polyarticulaires avant isolation) ---
+  const ISOLATION_HINTS = ["curl", "extension", "élévation", "écarté", "mollet", "leg curl", "leg extension"];
+  let orderIssues = 0;
+  days.forEach(d => {
+    let seenIsolation = false;
+    d.exercises.forEach(e => {
+      const isIsolation = ISOLATION_HINTS.some(h => e.name.toLowerCase().includes(h));
+      if (isIsolation) seenIsolation = true;
+      else if (seenIsolation && !isIsolation) orderIssues++;
+    });
+  });
+  if (orderIssues > 0) {
+    weaknesses.push("Dans certaines séances, des exercices polyarticulaires (squat, développé, tirage...) apparaissent après des exercices d'isolation — l'ordre inverse est généralement recommandé pour préserver la force et la technique sur les mouvements les plus exigeants.");
+    recommendations.push("Placer systématiquement les mouvements polyarticulaires en début de séance, les isolations en fin de séance.");
+    score -= 0.5;
+  } else {
+    strengths.push("Bon ordre des exercices : les mouvements polyarticulaires précèdent les exercices d'isolation dans les séances.");
+  }
+
+  // --- Équilibre jambes vs haut du corps (le classique "on saute le jour de jambes") ---
+  const legVolume = (volumeByCategory["Quadriceps"] || 0) + (volumeByCategory["Ischios & Fessiers"] || 0) + (volumeByCategory["Mollets"] || 0);
+  const upperVolume = (volumeByCategory["Pectoraux"] || 0) + (volumeByCategory["Dos"] || 0) + (volumeByCategory["Épaules"] || 0) + (volumeByCategory["Biceps"] || 0) + (volumeByCategory["Triceps"] || 0);
+  if (upperVolume > 0 && legVolume === 0) {
+    weaknesses.push("Aucun volume détecté sur les jambes (quadriceps, ischios, mollets) alors que le haut du corps est bien travaillé — le classique \"jour de jambes sauté\", à corriger pour un développement équilibré et éviter les déséquilibres de force.");
+    recommendations.push("Ajouter au moins une séance ciblant les jambes (squat, soulevé de terre roumain, fentes, presse à cuisses).");
+    score -= 1.5;
+  } else if (upperVolume > 0 && legVolume > 0 && legVolume < upperVolume * 0.35) {
+    weaknesses.push(`Le volume jambes (${legVolume} séries) est nettement inférieur à celui du haut du corps (${upperVolume} séries) — un ratio très déséquilibré en faveur du haut du corps.`);
+    score -= 0.5;
+  } else if (legVolume > 0) {
+    strengths.push("Les jambes sont travaillées avec un volume cohérent par rapport au haut du corps — pas de \"jour de jambes sauté\".");
+  }
+
+  // --- Fréquence par groupe musculaire (1x vs 2x+/semaine) ---
+  const daysPerCategory = {};
+  days.forEach(d => {
+    const catsThisDay = new Set(d.exercises.map(e => e.cat));
+    catsThisDay.forEach(cat => { daysPerCategory[cat] = (daysPerCategory[cat] || 0) + 1; });
+  });
+  const onceWeekly = MAJOR_GROUPS.filter(cat => daysPerCategory[cat] === 1);
+  if (onceWeekly.length >= 2 && days.length >= 4) {
+    recommendations.push(`${onceWeekly.join(", ")} ne sont travaillés qu'une seule fois par semaine. À volume hebdomadaire égal, répartir ce travail sur 2 séances par semaine est généralement associé à de meilleurs résultats en hypertrophie qu'une séance unique très chargée.`);
+    score -= 0.5;
+  }
+
+  // --- Présence de travail des abdominaux/gainage ---
+  if (!volumeByCategory["Abdominaux"] && days.length >= 3) {
+    weaknesses.push("Aucun travail spécifique des abdominaux/gainage détecté dans le programme.");
+    recommendations.push("Ajouter 1 à 2 exercices de gainage ou d'abdominaux, même en fin de séance.");
+    score -= 0.5;
+  } else if (volumeByCategory["Abdominaux"]) {
+    strengths.push("Le programme inclut un travail dédié des abdominaux/gainage.");
+  }
+
+  // --- Variété des mouvements dans les groupes les plus travaillés ---
+  const namesByCategory = {};
+  days.forEach(d => d.exercises.forEach(e => {
+    if (!namesByCategory[e.cat]) namesByCategory[e.cat] = new Set();
+    namesByCategory[e.cat].add(e.name);
+  }));
+  const monotone = MAJOR_GROUPS.filter(cat => (volumeByCategory[cat] || 0) >= 12 && (namesByCategory[cat]?.size || 0) <= 1);
+  if (monotone.length > 0) {
+    weaknesses.push(`${monotone.join(", ")} : volume élevé concentré sur un seul et même exercice, sans variation d'angle ou de mouvement. Varier les exercices au sein d'un groupe musculaire aide à solliciter l'ensemble des fibres et à limiter la monotonie.`);
+    score -= 0.5;
+  }
+
+  // --- Doublons d'exercices au sein d'une même séance (souvent une erreur de saisie) ---
+  let duplicateFound = false;
+  days.forEach(d => {
+    const seen = new Set();
+    d.exercises.forEach(e => {
+      if (seen.has(e.name)) duplicateFound = true;
+      seen.add(e.name);
+    });
+  });
+  if (duplicateFound) {
+    weaknesses.push("Un même exercice apparaît deux fois dans une même séance — probablement une erreur de saisie à vérifier.");
+    score -= 0.5;
+  }
+
+  // --- Volume total par séance (trop de séries en une seule session) ---
+  const heavySessions = days.filter(d => d.exercises.reduce((s, e) => s + (Number(e.sets) || 0), 0) > 28);
+  if (heavySessions.length > 0) {
+    weaknesses.push(`${heavySessions.length} séance${heavySessions.length > 1 ? "s dépassent" : " dépasse"} 28 séries au total en une seule session — au-delà de ce volume, la qualité d'exécution et l'intensité par série tendent à chuter (fatigue accumulée).`);
+    recommendations.push("Répartir le volume sur davantage de séances dans la semaine plutôt que de le concentrer.");
+    score -= 0.5;
+  }
+
+  // --- Présence de travail unilatéral (utile pour corriger les asymétries) ---
+  const UNILATERAL_HINTS = ["unilatéral", "un bras", "une jambe", "alterné", "bulgare", "pistol"];
+  const hasUnilateral = days.some(d => d.exercises.some(e => UNILATERAL_HINTS.some(h => e.name.toLowerCase().includes(h))));
+  if (!hasUnilateral && days.length >= 3) {
+    recommendations.push(`Aucun exercice unilatéral détecté (un bras / une jambe à la fois)${isAdvanced ? " — à ce niveau, c'est souvent le principal levier restant pour corriger des asymétries fines" : ""} — en ajouter permettrait de corriger d'éventuelles asymétries de force entre les côtés.`);
+  } else if (hasUnilateral) {
+    strengths.push("Le programme inclut du travail unilatéral, utile pour corriger les asymétries de force entre les côtés.");
+  }
+
+  // --- Adéquation reps / objectif du programme ---
+  const goalText = (program.goals || []).join(" ").toLowerCase() + " " + (program.name || "").toLowerCase();
+  const allReps = days.flatMap(d => d.exercises.map(e => parseInt(e.reps) || null)).filter(Boolean);
+  const avgReps = allReps.length ? allReps.reduce((a, b) => a + b, 0) / allReps.length : null;
+  if (avgReps !== null) {
+    const wantsStrength = /force|strength|531|powerlifting/.test(goalText);
+    const wantsHypertrophy = /hypertrophie|masse|volume/.test(goalText);
+    if (wantsStrength && avgReps > 8) {
+      weaknesses.push(`Objectif orienté force, mais la moyenne de répétitions du programme (~${avgReps.toFixed(1)}) est plutôt haute pour ce but — un travail en force bénéficie généralement de plages plus basses (3-6 reps) sur les mouvements principaux.`);
+      score -= 0.5;
+    } else if (wantsHypertrophy && (avgReps < 6 || avgReps > 20)) {
+      weaknesses.push(`Objectif hypertrophie, mais la moyenne de répétitions (~${avgReps.toFixed(1)}) sort de la plage habituellement la plus efficace (6-20 reps par série).`);
+      score -= 0.5;
+    } else {
+      strengths.push(`Les plages de répétitions (moyenne ~${avgReps.toFixed(1)}) sont cohérentes avec l'objectif annoncé du programme.`);
+    }
+  }
+
+  score = Math.max(1, Math.min(10, Math.round(score * 10) / 10));
+
+  if (strengths.length === 0) strengths.push("Structure de base cohérente, sans signal d'alerte majeur détecté.");
+  if (weaknesses.length === 0) weaknesses.push("Aucun point faible majeur détecté par cette analyse automatique.");
+  if (recommendations.length === 0) recommendations.push("Continuer à suivre la progression de charge et ajuster selon le ressenti du client.");
+
+  return { score, strengths, weaknesses, recommendations, daysTrained: days.length, restDays, muscleBreakdown, subMuscleDetail };
+}
+
 function poolFor(program, dayType) {
   if (dayType === "cardio") return program.location === "home" ? POOLS.cardio : POOLS.cardioGym;
   return POOLS[dayType] || POOLS.fullbodyGym;
@@ -868,8 +1204,88 @@ function getSupplementSuggestions(goal) {
   return [...(byGoal[goal] || byGoal["Recomposition"]), ...common];
 }
 
-const APP_VERSION = "2026.08.06b";
+const APP_VERSION = "2026.08.06l";
 const PATCH_NOTES = [
+  {
+    version: "2026.08.06l",
+    date: "6 août 2026",
+    items: [
+      "Analyse de programme croisée avec les blessures signalées à l'inscription du client — alerte si un exercice risque de solliciter une zone sensible.",
+      "Seuils de volume adaptés au niveau du client (débutant/intermédiaire/avancé) au lieu d'un repère unique.",
+      "Détection de la fatigue cumulée quand plusieurs mouvements lourds de la même chaîne sont sur la même séance (ex : squat + soulevé de terre).",
+    ],
+  },
+  {
+    version: "2026.08.06k",
+    date: "6 août 2026",
+    items: [
+      "Analyse gratuite du programme : détail anatomique fin par muscle (ex : chef long/court du biceps, brachial, deltoïde antérieur/latéral/postérieur...) avec recommandations d'angles de travail manquants.",
+    ],
+  },
+  {
+    version: "2026.08.06j",
+    date: "6 août 2026",
+    items: [
+      "Analyse gratuite du programme : nouvelle répartition visuelle du volume par muscle (barres, séries/semaine), avec détection explicite des muscles non travaillés.",
+    ],
+  },
+  {
+    version: "2026.08.06i",
+    date: "6 août 2026",
+    items: [
+      "Analyse gratuite du programme largement enrichie : équilibre jambes/haut du corps, fréquence par groupe musculaire, présence d'abdominaux, variété des mouvements, doublons, volume par séance, travail unilatéral.",
+    ],
+  },
+  {
+    version: "2026.08.06h",
+    date: "6 août 2026",
+    items: [
+      "Analyse de programme gratuite et instantanée : volume par groupe musculaire, équilibre poussée/tirage, récupération, ordre des exercices — sans clé API, sans coût.",
+      "L'analyse IA avec clé API personnelle reste disponible en option pour aller plus loin.",
+    ],
+  },
+  {
+    version: "2026.08.06g",
+    date: "6 août 2026",
+    items: [
+      "Tableau de bord client épuré : place à l'essentiel (lancer sa séance), le reste déplacé vers Profil et Calendrier.",
+      "Analyse IA d'un programme sur-mesure pour le coach (nécessite ta propre clé API, voir le README).",
+    ],
+  },
+  {
+    version: "2026.08.06f",
+    date: "6 août 2026",
+    items: [
+      "Réorganiser l'ordre des exercices d'une séance (coach en construisant un programme, client avant de démarrer).",
+      "\"Machine indisponible ?\" en plein exercice : remplace par un équivalent et remet l'original plus tard dans la séance.",
+    ],
+  },
+  {
+    version: "2026.08.06e",
+    date: "6 août 2026",
+    items: [
+      "Gestion des clients redesignée : fini les boutons empilés sur chaque fiche, place à une vraie fiche client dédiée avec onglets (Dossier, Programme, Messages, Photos, Ressenti, Charges).",
+      "Liste des clients épurée, un tap ouvre la fiche complète.",
+    ],
+  },
+  {
+    version: "2026.08.06d",
+    date: "6 août 2026",
+    items: [
+      "Fix : panneau d'installation et \"Quoi de neuf\" illisibles (texte noir sur fond noir).",
+      "Police cohérente partout : tous les menus déroulants remplacés par un composant maison (plus de police du téléphone qui détonne).",
+      "La séance se valide automatiquement à la fin du dernier exercice, direct vers le ressenti.",
+      "Dossier client complet côté coach : infos personnelles, compte, programme et progression en un seul endroit.",
+    ],
+  },
+  {
+    version: "2026.08.06c",
+    date: "6 août 2026",
+    items: [
+      "Navigation de l'espace coach en menu latéral, comme côté client.",
+      "Recherche, filtres (actifs/expirés/révoqués) et tri des clients dans l'espace coach.",
+    ],
+  },
   {
     version: "2026.08.06b",
     date: "6 août 2026",
@@ -1107,6 +1523,43 @@ const Card = ({ children, c, style, onClick, className }) => (
     cursor: onClick ? "pointer" : "default", ...style
   }}>{children}</div>
 );
+
+const CustomSelect = ({ c, value, onChange, options, placeholder, style }) => {
+  const [open, setOpen] = useState(false);
+  const selected = options.find(o => o.value === value);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="ff-body" style={{
+        ...inputStyle(c), display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", textAlign: "left", ...style
+      }}>
+        <span style={{ color: selected ? c.text : c.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected ? selected.label : (placeholder || "Choisir...")}</span>
+        <ChevronDown size={15} color={c.muted} style={{ flexShrink: 0, marginLeft: 6 }} />
+      </button>
+      {open && (
+        <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" }}>
+          <div onClick={e => e.stopPropagation()} className="ff-body anim-fadeUp" style={{
+            width: "100%", maxHeight: "70vh", overflowY: "auto", background: c.surface, color: c.text,
+            borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))"
+          }}>
+            <div style={{ width: 40, height: 4, background: c.border, borderRadius: 4, margin: "0 auto 16px" }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {options.map(o => (
+                <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 12px", borderRadius: 12, border: "none",
+                  background: o.value === value ? "rgba(0,113,227,0.1)" : "transparent", color: o.value === value ? c.electric2 : c.text,
+                  fontSize: 14, fontWeight: o.value === value ? 700 : 500, cursor: "pointer", textAlign: "left"
+                }}>
+                  {o.label}
+                  {o.value === value && <Check size={16} />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
 
 const IconBtn = ({ icon: Icon, onClick, c, size = 38, active, disabled }) => (
   <button onClick={onClick} disabled={disabled} style={{
@@ -1855,43 +2308,72 @@ const InstallPrompt = ({ c, onContinue }) => {
 const WhatsNewModal = ({ c, onClose }) => (
   <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end" }} onClick={onClose}>
     <div onClick={e => e.stopPropagation()} className="anim-fadeUp" style={{
-      width: "100%", background: c.surface, borderRadius: "24px 24px 0 0", padding: "24px 20px calc(24px + env(safe-area-inset-bottom))", maxHeight: "75vh", overflowY: "auto"
+      width: "100%", background: c.surface, color: c.text, borderRadius: "24px 24px 0 0",
+      padding: "22px 20px calc(22px + env(safe-area-inset-bottom))", maxHeight: "78vh", display: "flex", flexDirection: "column"
     }}>
-      <div style={{ width: 40, height: 4, background: c.border, borderRadius: 2, margin: "0 auto 20px" }} />
-      <div style={{ width: 52, height: 52, borderRadius: 16, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
-        <Sparkles size={24} color="#fff" />
+      <div style={{ width: 40, height: 4, background: c.border, borderRadius: 2, margin: "0 auto 20px", flexShrink: 0 }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18, flexShrink: 0 }}>
+        <div style={{ width: 46, height: 46, borderRadius: 14, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Sparkles size={22} color="#fff" />
+        </div>
+        <div>
+          <h2 className="ff-display" style={{ fontSize: 17, fontWeight: 700, margin: 0, color: c.text }}>Quoi de neuf</h2>
+          <p style={{ fontSize: 11, color: c.muted, margin: "2px 0 0" }}>Dernières nouveautés de l'app</p>
+        </div>
       </div>
-      <h2 className="ff-display" style={{ fontSize: 18, fontWeight: 700, textAlign: "center", marginBottom: 4 }}>Quoi de neuf</h2>
-      <p style={{ fontSize: 11.5, color: c.muted, textAlign: "center", marginBottom: 20 }}>{PATCH_NOTES[0].date}</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 22 }}>
-        {PATCH_NOTES[0].items.map((item, i) => (
-          <div key={i} style={{ display: "flex", gap: 10 }}>
-            <CheckCircle2 size={16} color={c.success} style={{ flexShrink: 0, marginTop: 1 }} />
-            <span style={{ fontSize: 13, lineHeight: 1.5 }}>{item}</span>
+
+      <div className="scrollbar-none" style={{ overflowY: "auto", marginBottom: 18 }}>
+        {PATCH_NOTES.slice(0, 3).map((note, ni) => (
+          <div key={note.version} style={{ marginBottom: ni < 2 ? 18 : 0 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>{note.date}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              {note.items.map((item, i) => (
+                <div key={i} style={{ display: "flex", gap: 10 }}>
+                  <CheckCircle2 size={15} color={c.success} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span style={{ fontSize: 13, lineHeight: 1.5, color: c.text }}>{item}</span>
+                </div>
+              ))}
+            </div>
+            {ni < Math.min(2, PATCH_NOTES.length - 1) && <div style={{ height: 1, background: c.border, marginTop: 18 }} />}
           </div>
         ))}
       </div>
-      <PrimaryBtn c={c} full onClick={onClose}>Compris</PrimaryBtn>
+      <PrimaryBtn c={c} full onClick={onClose} style={{ flexShrink: 0 }}>Compris</PrimaryBtn>
     </div>
   </div>
 );
 
 const InstallModal = ({ c, onClose }) => (
   <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end" }} onClick={onClose}>
-    <div className="anim-fadeUp" onClick={(e) => e.stopPropagation()} style={{ background: c.surface, width: "100%", borderRadius: "24px 24px 0 0", padding: 22, border: `1px solid ${c.border}` }}>
+    <div className="anim-fadeUp" onClick={(e) => e.stopPropagation()} style={{ background: c.surface, color: c.text, width: "100%", borderRadius: "24px 24px 0 0", padding: "22px 20px calc(22px + env(safe-area-inset-bottom))", border: `1px solid ${c.border}` }}>
       <div style={{ width: 40, height: 4, background: c.border, borderRadius: 4, margin: "0 auto 18px" }} />
-      <div className="ff-display" style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>Installer N2Koaching</div>
-      <p style={{ fontSize: 13, color: c.muted, marginBottom: 16, lineHeight: 1.5 }}>
-        Ajoutez N2Koaching à votre écran d'accueil pour un accès instantané, comme une vraie application.
-      </p>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <div style={{ width: 46, height: 46, borderRadius: 14, background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Download size={22} color="#fff" />
+        </div>
+        <div>
+          <div className="ff-display" style={{ fontWeight: 700, fontSize: 16, color: c.text }}>Installer N2Koaching</div>
+          <p style={{ fontSize: 11.5, color: c.muted, margin: "2px 0 0", lineHeight: 1.4 }}>Un accès instantané, comme une vraie application.</p>
+        </div>
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <Card c={c} style={{ padding: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>📱 Sur iPhone (Safari)</div>
-          <div style={{ fontSize: 12.5, color: c.muted }}>Appuyez sur <Share size={12} style={{ display: "inline", verticalAlign: "-2px" }} /> Partager → « Sur l'écran d'accueil ».</div>
+        <Card c={c} style={{ padding: 14, display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <svg width="18" height="18" viewBox="0 0 384 512" fill={c.text}><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z" /></svg>
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3, color: c.text }}>iPhone / iPad (Safari)</div>
+            <div style={{ fontSize: 12, color: c.muted, lineHeight: 1.5 }}>Appuyez sur <Share size={12} style={{ display: "inline", verticalAlign: "-2px" }} /> Partager, puis « Sur l'écran d'accueil ».</div>
+          </div>
         </Card>
-        <Card c={c} style={{ padding: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>🤖 Sur Android (Chrome)</div>
-          <div style={{ fontSize: 12.5, color: c.muted }}>Menu ⋮ → « Ajouter à l'écran d'accueil » → Installer.</div>
+        <Card c={c} style={{ padding: 14, display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#34C759" d="M6 20h36v14a4 4 0 0 1-4 4H10a4 4 0 0 1-4-4V20Z" /><path d="M12 20V13a12 12 0 0 1 24 0v7" stroke="#34C759" strokeWidth="4" fill="none" /><circle cx="17" cy="26" r="2" fill="#fff" /><circle cx="31" cy="26" r="2" fill="#fff" /></svg>
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3, color: c.text }}>Android (Chrome)</div>
+            <div style={{ fontSize: 12, color: c.muted, lineHeight: 1.5 }}>Menu ⋮ en haut à droite, puis « Ajouter à l'écran d'accueil ».</div>
+          </div>
         </Card>
       </div>
       <PrimaryBtn c={c} full style={{ marginTop: 16 }} onClick={onClose}>Compris</PrimaryBtn>
@@ -1984,16 +2466,13 @@ const Drawer = ({ c, open, onClose, tab, setTab, profile, onLogout }) => {
 /* ============================================================
    DASHBOARD
 ============================================================ */
-const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completedSessions, water }) => {
-  const { xp, level, sessionsCompleted, totalMinutes, calories, name } = state;
+const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completedSessions }) => {
+  const { xp, level, name } = state;
   const curLevelXp = xpForLevel(level - 1);
   const nextLevelXp = xpForLevel(level);
   const pct = ((xp - curLevelXp) / (nextLevelXp - curLevelXp)) * 100;
   const assigned = resolveAssignedProgram(state);
   const today = assigned ? computeTodaySession(state) : null;
-  const dailyStats = computeDailyStats(completedSessions);
-  const weeklyActivity = computeWeeklyActivity(completedSessions);
-  const weeklyPoints = computeWeeklyPoints(completedSessions);
   const streakInfo = computeRealStreak(completedSessions, state.streakFreezeUsedAt);
   const featured = [PROGRAMS.find(p => p.id === "ppl"), PROGRAMS.find(p => p.id === "upper-lower"), PROGRAMS.find(p => p.id === "maison")];
   const daysUntilExpiry = state.accessExpiresAt ? Math.ceil((new Date(state.accessExpiresAt) - new Date()) / 86400000) : null;
@@ -2080,32 +2559,12 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completed
         </Card>
       )}
 
-      <Card c={c} style={{ marginBottom: 14, display: "flex", gap: 12, alignItems: "center" }}>
-        <Sparkles size={18} color={c.electric2} style={{ flexShrink: 0 }} />
-        <p className="ff-display" style={{ margin: 0, fontSize: 13, fontStyle: "italic", color: c.text, lineHeight: 1.5 }}>« {quote} »</p>
-      </Card>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-        {[
-          { icon: Check, v: sessionsCompleted, l: "Séances réalisées", tone: c.success },
-          { icon: Clock, v: fmtMin(totalMinutes), l: "Temps total", tone: c.electric2 },
-          { icon: Flame, v: calories.toLocaleString("fr-FR"), l: "Kcal brûlées", tone: c.warning },
-          { icon: Trophy, v: BADGES.filter(b => (b.type === "sessions" && sessionsCompleted >= b.target) || (b.type === "streak" && streakInfo.streak >= b.target) || (b.type === "xp" && xp >= b.target)).length + "/8", l: "Badges débloqués", tone: c.danger },
-        ].map((s, i) => (
-          <Card c={c} key={i} style={{ padding: 14 }}>
-            <s.icon size={16} color={s.tone} style={{ marginBottom: 8 }} />
-            <div className="ff-mono" style={{ fontWeight: 700, fontSize: 17 }}>{s.v}</div>
-            <div style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{s.l}</div>
-          </Card>
-        ))}
-      </div>
-
       {!assigned && (
         <>
           <SectionTitle c={c} action={<button onClick={() => goTab("programs")} style={{ background: "none", border: "none", color: c.electric2, fontSize: 12.5, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 2 }}>Tout voir <ChevronRight size={14} /></button>}>
             Programmes recommandés
           </SectionTitle>
-          <div className="scrollbar-none" style={{ display: "flex", gap: 12, overflowX: "auto", marginBottom: 20, paddingBottom: 4 }}>
+          <div className="scrollbar-none" style={{ display: "flex", gap: 12, overflowX: "auto", marginBottom: 4, paddingBottom: 4 }}>
             {featured.map((p) => (
               <div key={p.id} onClick={() => openProgram(p)} style={{ minWidth: 190, background: c.surface, border: `1px solid ${c.border}`, borderRadius: 18, padding: 16, cursor: "pointer", flexShrink: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
@@ -2124,63 +2583,6 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completed
           </div>
         </>
       )}
-
-      <Card c={c} style={{ marginBottom: 20, background: c.gradB, border: "none", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: -30, right: -30, width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-          <Sparkles size={14} color="#fff" />
-          <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: 0.5 }}>Points de la semaine</span>
-        </div>
-        <div className="ff-mono" style={{ fontSize: 42, fontWeight: 700, color: "#fff", lineHeight: 1.1, marginBottom: 12 }}>
-          {weeklyPoints.xp.toLocaleString("fr-FR")} <span style={{ fontSize: 16, fontWeight: 700, opacity: 0.75 }}>XP</span>
-        </div>
-        <div style={{ display: "flex", gap: 16 }}>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{weeklyPoints.sessions}</div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)" }}>séances</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{fmtMin(weeklyPoints.minutes)}</div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)" }}>temps total</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{weeklyPoints.calories.toLocaleString("fr-FR")}</div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)" }}>kcal</div>
-          </div>
-        </div>
-      </Card>
-
-      <SectionTitle c={c}>Défis du jour</SectionTitle>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
-        {[
-          { t: "Boire 2L d'eau", p: Math.min(100, Math.round((water / 8) * 100)), icon: Droplet },
-          { t: "1 séance terminée", p: dailyStats.sessionsToday > 0 ? 100 : 0, icon: Check },
-          { t: "500 kcal brûlées", p: Math.min(100, Math.round((dailyStats.caloriesToday / 500) * 100)), icon: Flame },
-        ].map((ch, i) => (
-          <Card c={c} key={i} style={{ padding: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              <ch.icon size={15} color={c.electric2} />
-              <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{ch.t}</span>
-              <span className="ff-mono" style={{ fontSize: 11.5, color: c.muted }}>{ch.p}%</span>
-            </div>
-            <div style={{ height: 6, background: c.surface2, borderRadius: 4, overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${ch.p}%`, background: c.gradA, borderRadius: 4, transition: "width .4s ease" }} />
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      <SectionTitle c={c}>Activité de la semaine</SectionTitle>
-      <Card c={c} style={{ paddingTop: 16 }}>
-        <ResponsiveContainer width="100%" height={140}>
-          <BarChart data={weeklyActivity}>
-            <XAxis dataKey="d" tick={{ fill: c.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis hide allowDecimals={false} />
-            <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.border}`, borderRadius: 10, fontSize: 12 }} formatter={(v) => [`${v} séance${v > 1 ? "s" : ""}`, ""]} />
-            <Bar dataKey="n" radius={[6, 6, 6, 6]} fill={c.electric} />
-          </BarChart>
-        </ResponsiveContainer>
-      </Card>
     </div>
   );
 };
@@ -2826,7 +3228,7 @@ const RestDayScreen = ({ c }) => (
    MODE FOCUS — un exercice plein écran à la fois, avec repos
    obligatoire plein écran entre les séries.
 ============================================================ */
-const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, onContinue, onExitFocus, profileId, sessionKey }) => {
+const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, onContinue, onExitFocus, onSubstitute, profileId, sessionKey }) => {
   const [sets, setSets] = useState(() => Array.from({ length: exercise.sets }, () => ({ weight: "", reps: "", done: false })));
   const [phase, setPhase] = useState("input"); // input | resting | done
   const [activeIdx, setActiveIdx] = useState(0);
@@ -2938,7 +3340,7 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
               </div>
             )}
 
-            <div style={{ display: "flex", gap: 6, marginBottom: 30 }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
               {sets.map((s, i) => (
                 <div key={i} style={{
                   width: 10, height: 10, borderRadius: "50%",
@@ -2947,6 +3349,11 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
                 }} />
               ))}
             </div>
+            {onSubstitute && (
+              <button onClick={onSubstitute} style={{ background: "none", border: "none", color: c.muted, fontSize: 11.5, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, marginBottom: 26 }}>
+                <RotateCcw size={12} /> Machine indisponible ? Remplacer cet exercice
+              </button>
+            )}
           </>
         )}
 
@@ -3009,16 +3416,39 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
   );
 };
 
-const FocusRunner = ({ c, exercises, startIndex, onMarkDone, onClose, profileId, sessionKey }) => {
+const FocusRunner = ({ c, exercises: initialExercises, startIndex, onMarkDone, onClose, profileId, sessionKey, onAllDone }) => {
+  const [exercises, setExercises] = useState(initialExercises);
+  const [reserve, setReserve] = useState([]);
   const [idx, setIdx] = useState(startIndex);
   const exercise = exercises[idx];
-  const isLast = idx === exercises.length - 1;
+
+  const substitute = () => {
+    const alt = findSubstitute(exercise, [...exercises, ...reserve]);
+    if (!alt) return;
+    setExercises(list => list.map((e, i) => (i === idx ? alt : e)));
+    setReserve(r => [...r, exercise]);
+  };
+
+  const goNext = () => {
+    if (idx + 1 < exercises.length) { setIdx(idx + 1); return; }
+    if (reserve.length > 0) {
+      setExercises(list => [...list, ...reserve]);
+      setReserve([]);
+      setIdx(idx + 1);
+      return;
+    }
+    onAllDone();
+    onClose();
+  };
+
+  const nextName = idx + 1 < exercises.length ? exercises[idx + 1].name : (reserve.length > 0 ? reserve[0].name : null);
 
   return (
-    <FocusExercise key={idx} c={c} exercise={exercise} index={idx} total={exercises.length}
-      nextName={isLast ? null : exercises[idx + 1].name}
+    <FocusExercise key={`${idx}-${exercise.name}`} c={c} exercise={exercise} index={idx} total={exercises.length + reserve.length}
+      nextName={nextName}
       onExerciseDone={() => onMarkDone(idx)}
-      onContinue={() => { if (isLast) onClose(); else setIdx(idx + 1); }}
+      onContinue={goNext}
+      onSubstitute={substitute}
       onExitFocus={onClose} profileId={profileId} sessionKey={sessionKey} />
   );
 };
@@ -3027,13 +3457,21 @@ const SessionDetail = ({ c, session, onComplete, completed, profileId, sessionKe
   const [doneMap, setDoneMap] = useState({});
   const [focusOpen, setFocusOpen] = useState(false);
   const [focusStart, setFocusStart] = useState(0);
+  const [orderedMain, setOrderedMain] = useState(session.main);
   const startedAtRef = useRef(null);
   if (session.rest) return <RestDayScreen c={c} />;
   const totalExercises = session.warm.length + session.main.length + session.cool.length;
   const doneCount = Object.keys(doneMap).length;
   const allLogged = doneCount >= session.main.length;
   const markDone = (idx) => setDoneMap(m => ({ ...m, [idx]: true }));
+  const moveExercise = (from, to) => setOrderedMain(list => {
+    const next = [...list];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    return next;
+  });
   const finishSession = () => {
+    if (completed) return;
     const elapsed = startedAtRef.current ? Math.max(1, Math.round((Date.now() - startedAtRef.current) / 60000)) : null;
     onComplete(elapsed);
   };
@@ -3078,7 +3516,7 @@ const SessionDetail = ({ c, session, onComplete, completed, profileId, sessionKe
         Chaque exercice s'ouvre en plein écran, un à la fois, avec un temps de repos entre les séries (possibilité de le passer).
       </p>
       <PrimaryBtn c={c} full icon={Play} style={{ marginBottom: 12 }} onClick={() => {
-        const firstIncomplete = session.main.findIndex((_, i) => !doneMap[i]);
+        const firstIncomplete = orderedMain.findIndex((_, i) => !doneMap[i]);
         setFocusStart(firstIncomplete === -1 ? 0 : firstIncomplete);
         setFocusOpen(true);
         if (!startedAtRef.current) startedAtRef.current = Date.now();
@@ -3086,8 +3524,14 @@ const SessionDetail = ({ c, session, onComplete, completed, profileId, sessionKe
         {doneCount === 0 ? "Démarrer les exercices" : doneCount < session.main.length ? `Reprendre (${doneCount}/${session.main.length})` : "Revoir les exercices"}
       </PrimaryBtn>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
-        {session.main.map((e, i) => (
-          <Card key={i} c={c} onClick={() => { setFocusStart(i); setFocusOpen(true); if (!startedAtRef.current) startedAtRef.current = Date.now(); }} style={{ padding: 12, display: "flex", alignItems: "center", gap: 12 }}>
+        {orderedMain.map((e, i) => (
+          <Card key={e.name} c={c} onClick={() => { setFocusStart(i); setFocusOpen(true); if (!startedAtRef.current) startedAtRef.current = Date.now(); }} style={{ padding: 12, display: "flex", alignItems: "center", gap: 10 }}>
+            {doneCount === 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 1, flexShrink: 0 }} onClick={e2 => e2.stopPropagation()}>
+                <button onClick={() => i > 0 && moveExercise(i, i - 1)} disabled={i === 0} style={{ background: "none", border: "none", cursor: i === 0 ? "default" : "pointer", color: i === 0 ? c.border : c.muted, padding: 0, lineHeight: 0 }}><ChevronUp size={14} /></button>
+                <button onClick={() => i < orderedMain.length - 1 && moveExercise(i, i + 1)} disabled={i === orderedMain.length - 1} style={{ background: "none", border: "none", cursor: i === orderedMain.length - 1 ? "default" : "pointer", color: i === orderedMain.length - 1 ? c.border : c.muted, padding: 0, lineHeight: 0 }}><ChevronDown size={14} /></button>
+              </div>
+            )}
             <div className="ff-mono" style={{
               width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700,
               background: doneMap[i] ? c.success : c.surface2, color: doneMap[i] ? "#fff" : c.text
@@ -3101,8 +3545,8 @@ const SessionDetail = ({ c, session, onComplete, completed, profileId, sessionKe
         ))}
       </div>
       {focusOpen && (
-        <FocusRunner c={c} exercises={session.main} startIndex={focusStart}
-          onMarkDone={(i) => markDone(i)} onClose={() => setFocusOpen(false)} profileId={profileId} sessionKey={sessionKey} />
+        <FocusRunner c={c} exercises={orderedMain} startIndex={focusStart}
+          onMarkDone={(i) => markDone(i)} onClose={() => setFocusOpen(false)} onAllDone={finishSession} profileId={profileId} sessionKey={sessionKey} />
       )}
 
       <SectionTitle c={c}>Retour au calme</SectionTitle>
@@ -3164,6 +3608,7 @@ const Calendar = ({ c, completedSessions }) => {
   const sessionsThisWeek = entries.filter(e => { const d = new Date(e.completedAt); d.setHours(0, 0, 0, 0); return d >= monday; }).length;
 
   const recent = [...entries].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).slice(0, 8);
+  const weeklyActivity = computeWeeklyActivity(completedSessions);
 
   return (
     <div style={{ padding: "18px 18px 30px" }} className="anim-fadeIn">
@@ -3172,6 +3617,18 @@ const Calendar = ({ c, completedSessions }) => {
         <Card c={c}><div className="ff-mono" style={{ fontWeight: 700, fontSize: 20 }}>{sessionsThisMonth}</div><div style={{ fontSize: 11.5, color: c.muted }}>Séances ce mois-ci</div></Card>
         <Card c={c}><div className="ff-mono" style={{ fontWeight: 700, fontSize: 20 }}>{sessionsThisWeek}</div><div style={{ fontSize: 11.5, color: c.muted }}>Séances cette semaine</div></Card>
       </div>
+
+      <SectionTitle c={c}>Activité de la semaine</SectionTitle>
+      <Card c={c} style={{ paddingTop: 16, marginBottom: 18 }}>
+        <ResponsiveContainer width="100%" height={120}>
+          <BarChart data={weeklyActivity}>
+            <XAxis dataKey="d" tick={{ fill: c.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis hide allowDecimals={false} />
+            <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.border}`, borderRadius: 10, fontSize: 12 }} formatter={(v) => [`${v} séance${v > 1 ? "s" : ""}`, ""]} />
+            <Bar dataKey="n" radius={[6, 6, 6, 6]} fill={c.electric} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>
 
       <SectionTitle c={c}>{monthName.charAt(0).toUpperCase() + monthName.slice(1)}</SectionTitle>
       <Card c={c}>
@@ -3498,7 +3955,7 @@ const SubscriptionSection = ({ c, status }) => {
 
 
 const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLogged, onAvatarChanged, completedSessions }) => {
-  const { name, weight, height, goal, level, xp, sportLevel, avatarUrl } = state;
+  const { name, weight, height, goal, level, xp, sportLevel, avatarUrl, sessionsCompleted, totalMinutes, calories } = state;
   const [logs, setLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(true);
   const [showLogForm, setShowLogForm] = useState(false);
@@ -3508,6 +3965,7 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
   const avatarInputRef = useRef(null);
   const profileDaysUntilExpiry = state.accessExpiresAt ? Math.ceil((new Date(state.accessExpiresAt) - new Date()) / 86400000) : null;
   const profileExpirySoon = profileDaysUntilExpiry !== null && profileDaysUntilExpiry >= 0 && profileDaysUntilExpiry <= 7;
+  const weeklyPoints = computeWeeklyPoints(completedSessions || {});
 
   useEffect(() => {
     if (!profileId) { setLoadingLogs(false); return; }
@@ -3579,6 +4037,46 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
         <div style={{ fontSize: 12.5, color: c.muted }}>Niveau {level} · {sportLevel} · Objectif : {goal}</div>
         <div style={{ fontSize: 11, color: c.muted, marginTop: 4 }}>{accountEmail}</div>
       </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+        {[
+          { icon: Check, v: sessionsCompleted, l: "Séances réalisées", tone: c.success },
+          { icon: Clock, v: fmtMin(totalMinutes), l: "Temps total", tone: c.electric2 },
+          { icon: Flame, v: calories.toLocaleString("fr-FR"), l: "Kcal brûlées", tone: c.warning },
+          { icon: Trophy, v: BADGES.filter(b => (b.type === "sessions" && sessionsCompleted >= b.target) || (b.type === "streak" && computeRealStreak(completedSessions || {}, state.streakFreezeUsedAt).streak >= b.target) || (b.type === "xp" && xp >= b.target)).length + "/8", l: "Badges débloqués", tone: c.danger },
+        ].map((s, i) => (
+          <Card c={c} key={i} style={{ padding: 14 }}>
+            <s.icon size={16} color={s.tone} style={{ marginBottom: 8 }} />
+            <div className="ff-mono" style={{ fontWeight: 700, fontSize: 17 }}>{s.v}</div>
+            <div style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{s.l}</div>
+          </Card>
+        ))}
+      </div>
+
+      <Card c={c} style={{ marginBottom: 18, background: c.gradB, border: "none", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: -30, right: -30, width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+          <Sparkles size={14} color="#fff" />
+          <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: 0.5 }}>Points de la semaine</span>
+        </div>
+        <div className="ff-mono" style={{ fontSize: 36, fontWeight: 700, color: "#fff", lineHeight: 1.1, marginBottom: 10 }}>
+          {weeklyPoints.xp.toLocaleString("fr-FR")} <span style={{ fontSize: 14, fontWeight: 700, opacity: 0.75 }}>XP</span>
+        </div>
+        <div style={{ display: "flex", gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{weeklyPoints.sessions}</div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)" }}>séances</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{fmtMin(weeklyPoints.minutes)}</div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)" }}>temps total</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{weeklyPoints.calories.toLocaleString("fr-FR")}</div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)" }}>kcal</div>
+          </div>
+        </div>
+      </Card>
 
       <SectionTitle c={c}>Informations</SectionTitle>
       <Card c={c} style={{ marginBottom: 18 }}>
@@ -3704,7 +4202,7 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
 /* ============================================================
    ADMIN — PANEL
 ============================================================ */
-const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdate }) => {
+const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdate, onMove }) => {
   const [catFilter, setCatFilter] = useState("Tous");
   const [search, setSearch] = useState("");
   const [showCustom, setShowCustom] = useState(false);
@@ -3781,12 +4279,10 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
         <div className="anim-fadeIn" style={{ background: c.surface, borderRadius: 12, padding: 10, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 }}>
           <input style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12.5 }} placeholder="Nom de l'exercice" value={cName} onChange={e => setCName(e.target.value)} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <select style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12 }} value={cCat} onChange={e => setCCat(e.target.value)}>
-              {EXERCISE_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-            </select>
-            <select style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12 }} value={cDiff} onChange={e => setCDiff(e.target.value)}>
-              <option>Facile</option><option>Modéré</option><option>Difficile</option>
-            </select>
+            <CustomSelect c={c} value={cCat} onChange={setCCat} style={{ padding: "8px 10px", fontSize: 12 }}
+              options={EXERCISE_CATEGORIES.map(cat => ({ value: cat, label: cat }))} />
+            <CustomSelect c={c} value={cDiff} onChange={setCDiff} style={{ padding: "8px 10px", fontSize: 12 }}
+              options={[{ value: "Facile", label: "Facile" }, { value: "Modéré", label: "Modéré" }, { value: "Difficile", label: "Difficile" }]} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
             <div><div style={{ fontSize: 9.5, color: c.muted, marginBottom: 2 }}>Séries</div>
@@ -3829,6 +4325,10 @@ const DayExercisePicker = ({ c, location, dayExercises, onAdd, onRemove, onUpdat
         {dayExercises.map((e, idx) => (
           <div key={idx} style={{ background: c.surface, borderRadius: 10, padding: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 1, flexShrink: 0 }}>
+                <button onClick={() => idx > 0 && onMove(idx, idx - 1)} disabled={idx === 0} style={{ background: "none", border: "none", cursor: idx === 0 ? "default" : "pointer", color: idx === 0 ? c.border : c.muted, padding: 0, lineHeight: 0 }}><ChevronUp size={14} /></button>
+                <button onClick={() => idx < dayExercises.length - 1 && onMove(idx, idx + 1)} disabled={idx === dayExercises.length - 1} style={{ background: "none", border: "none", cursor: idx === dayExercises.length - 1 ? "default" : "pointer", color: idx === dayExercises.length - 1 ? c.border : c.muted, padding: 0, lineHeight: 0 }}><ChevronDown size={14} /></button>
+              </div>
               <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>{idx + 1}. {e.name}</span>
               <button onClick={() => onRemove(idx)} style={{ background: "none", border: "none", cursor: "pointer", color: c.danger }}><X size={15} /></button>
             </div>
@@ -3880,6 +4380,14 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
   const [openDay, setOpenDay] = useState(null);
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
+  const [aiApiKey, setAiApiKey] = useState(getStoredApiKey());
+  const [showAiKeyForm, setShowAiKeyForm] = useState(false);
+  const [aiKeyInput, setAiKeyInput] = useState("");
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [aiResult, setAiResult] = useState("");
+  const [aiError, setAiError] = useState("");
+  const [showAiSection, setShowAiSection] = useState(false);
+  const [localAnalysis, setLocalAnalysis] = useState(null);
 
   const loadProgramData = (data) => {
     setName(data.name || name); setLevel(data.level || level); setWeeks(data.weeks || weeks);
@@ -3892,6 +4400,13 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
   const addExercise = (i, libEx) => setDays(ds => ds.map((d, di) => di === i ? { ...d, exercises: [...d.exercises, { ...libEx }] } : d));
   const removeExercise = (i, exIdx) => setDays(ds => ds.map((d, di) => di === i ? { ...d, exercises: d.exercises.filter((_, ei) => ei !== exIdx) } : d));
   const updateExercise = (i, exIdx, field, val) => setDays(ds => ds.map((d, di) => di !== i ? d : { ...d, exercises: d.exercises.map((e, ei) => ei === exIdx ? { ...e, [field]: val } : e) }));
+  const moveExercise = (i, fromIdx, toIdx) => setDays(ds => ds.map((d, di) => {
+    if (di !== i) return d;
+    const next = [...d.exercises];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    return { ...d, exercises: next };
+  }));
 
   const totalSessions = days.filter(d => !d.rest && d.exercises.length > 0).length;
 
@@ -3901,6 +4416,25 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
     cycle: days.map(d => (d.rest || d.exercises.length === 0) ? "repos" : "custom"),
     customSessions: days, custom: true,
   });
+
+  const runAiAnalysis = async () => {
+    setAiError(""); setAiResult(""); setAiAnalyzing(true);
+    try {
+      const result = await analyzeProgramWithAI(buildProgramData(), aiApiKey);
+      setAiResult(result);
+    } catch (e) {
+      setAiError(e && e.message ? e.message : "Analyse impossible.");
+    }
+    setAiAnalyzing(false);
+  };
+
+  const saveAiKey = () => {
+    if (!aiKeyInput.trim()) return;
+    storeApiKey(aiKeyInput.trim());
+    setAiApiKey(aiKeyInput.trim());
+    setShowAiKeyForm(false);
+    setAiKeyInput("");
+  };
 
   const save = () => onSave(buildProgramData());
   const saveAsTemplate = () => {
@@ -3917,24 +4451,14 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
         <div style={{ background: c.surface2, borderRadius: 12, padding: 10, marginBottom: 14, display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: c.muted, display: "flex", alignItems: "center", gap: 5 }}><Copy size={13} /> Réutiliser un programme existant</div>
           {otherClients.length > 0 && (
-            <select style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12 }} defaultValue="" onChange={e => {
-              const src = otherClients.find(o => o.id === e.target.value);
-              if (src && src.customProgram) loadProgramData(src.customProgram);
-              e.target.value = "";
-            }}>
-              <option value="" disabled>Copier depuis un autre client...</option>
-              {otherClients.map(o => <option key={o.id} value={o.id}>{o.name} — {o.customProgram.name}</option>)}
-            </select>
+            <CustomSelect c={c} value="" placeholder="Copier depuis un autre client..." style={{ padding: "8px 10px", fontSize: 12 }}
+              onChange={(v) => { const src = otherClients.find(o => o.id === v); if (src && src.customProgram) loadProgramData(src.customProgram); }}
+              options={otherClients.map(o => ({ value: o.id, label: `${o.name} — ${o.customProgram.name}` }))} />
           )}
           {templates.length > 0 && (
-            <select style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12 }} defaultValue="" onChange={e => {
-              const t = templates.find(t => t.id === e.target.value);
-              if (t) loadProgramData(t.data);
-              e.target.value = "";
-            }}>
-              <option value="" disabled>Charger un modèle enregistré...</option>
-              {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+            <CustomSelect c={c} value="" placeholder="Charger un modèle enregistré..." style={{ padding: "8px 10px", fontSize: 12 }}
+              onChange={(v) => { const t = templates.find(t => t.id === v); if (t) loadProgramData(t.data); }}
+              options={templates.map(t => ({ value: t.id, label: t.name }))} />
           )}
         </div>
       )}
@@ -3944,16 +4468,11 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div>
             <div style={labelStyle(c)}>Lieu</div>
-            <select style={inputStyle(c)} value={location} onChange={e => setLocation(e.target.value)}>
-              <option value="gym">Salle de sport</option>
-              <option value="home">Maison</option>
-            </select>
+            <CustomSelect c={c} value={location} onChange={setLocation} options={[{ value: "gym", label: "Salle de sport" }, { value: "home", label: "Maison" }]} />
           </div>
           <div>
             <div style={labelStyle(c)}>Niveau</div>
-            <select style={inputStyle(c)} value={level} onChange={e => setLevel(e.target.value)}>
-              <option>Débutant</option><option>Intermédiaire</option><option>Avancé</option>
-            </select>
+            <CustomSelect c={c} value={level} onChange={setLevel} options={[{ value: "Débutant", label: "Débutant" }, { value: "Intermédiaire", label: "Intermédiaire" }, { value: "Avancé", label: "Avancé" }]} />
           </div>
         </div>
         <div><div style={labelStyle(c)}>Durée (semaines)</div><input type="number" min={1} max={20} style={inputStyle(c)} value={weeks} onChange={e => setWeeks(e.target.value)} /></div>
@@ -3984,7 +4503,8 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
                 <DayExercisePicker c={c} location={location} dayExercises={d.exercises}
                   onAdd={(libEx) => addExercise(i, libEx)}
                   onRemove={(exIdx) => removeExercise(i, exIdx)}
-                  onUpdate={(exIdx, field, val) => updateExercise(i, exIdx, field, val)} />
+                  onUpdate={(exIdx, field, val) => updateExercise(i, exIdx, field, val)}
+                  onMove={(fromIdx, toIdx) => moveExercise(i, fromIdx, toIdx)} />
               )}
             </div>
           ))}
@@ -3999,6 +4519,125 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
         ) : (
           <SecondaryBtn c={c} full icon={Bookmark} onClick={() => setShowSaveTemplate(true)}>Enregistrer comme modèle réutilisable</SecondaryBtn>
         )}
+
+        <div style={{ borderTop: `1px solid ${c.border}`, paddingTop: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <Sparkles size={15} color={c.electric2} />
+            <span style={{ fontSize: 13, fontWeight: 700 }}>Analyse du programme (gratuite)</span>
+          </div>
+          <PrimaryBtn c={c} full icon={Sparkles} disabled={totalSessions === 0} onClick={() => setLocalAnalysis(analyzeProgramLocally(buildProgramData(), client))} style={{ marginBottom: localAnalysis ? 12 : 0 }}>
+            Analyser ce programme
+          </PrimaryBtn>
+
+          {localAnalysis && (
+            <div style={{ background: c.surface2, borderRadius: 12, padding: 14, marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <div style={{
+                  width: 44, height: 44, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: localAnalysis.score >= 7.5 ? "rgba(48,209,88,0.15)" : localAnalysis.score >= 5 ? "rgba(255,159,10,0.15)" : "rgba(255,59,48,0.15)"
+                }}>
+                  <span className="ff-mono" style={{ fontWeight: 700, fontSize: 15, color: localAnalysis.score >= 7.5 ? c.success : localAnalysis.score >= 5 ? c.warning : c.danger }}>{localAnalysis.score}</span>
+                </div>
+                <div style={{ fontSize: 12, color: c.muted }}>Note globale sur 10<br /><span style={{ fontSize: 11 }}>{localAnalysis.daysTrained} jour{localAnalysis.daysTrained > 1 ? "s" : ""} d'entraînement · {localAnalysis.restDays} de repos</span></div>
+              </div>
+
+              <div style={{ fontSize: 11, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Muscles travaillés (séries/semaine)</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+                {localAnalysis.muscleBreakdown.map(m => (
+                  <div key={m.cat}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span style={{ fontSize: 11.5, color: m.sets === 0 ? c.muted : c.text, fontWeight: m.sets === 0 ? 400 : 600 }}>{m.cat}</span>
+                      <span className="ff-mono" style={{ fontSize: 11, color: c.muted }}>{m.sets === 0 ? "non travaillé" : `${m.sets} séries`}</span>
+                    </div>
+                    <div style={{ height: 6, background: c.surface, borderRadius: 4, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${Math.max(m.pct, m.sets > 0 ? 4 : 0)}%`, background: m.sets === 0 ? "transparent" : c.gradA, borderRadius: 4 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {localAnalysis.subMuscleDetail.length > 0 && (
+                <>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Détail anatomique par muscle</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+                    {localAnalysis.subMuscleDetail.map(group => (
+                      <div key={group.cat} style={{ background: c.surface, borderRadius: 10, padding: 10 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{group.cat}</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {group.subMuscles.map(sm => (
+                            <div key={sm.name} style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                              {sm.covered ? <CheckCircle2 size={12} color={c.success} style={{ flexShrink: 0 }} /> : <X size={12} color={c.muted} style={{ flexShrink: 0 }} />}
+                              <span style={{ fontSize: 11, color: sm.covered ? c.text : c.muted }}>{sm.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div style={{ fontSize: 11, fontWeight: 700, color: c.success, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Points forts</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                {localAnalysis.strengths.map((s, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.5 }}><CheckCircle2 size={13} color={c.success} style={{ flexShrink: 0, marginTop: 2 }} /><span>{s}</span></div>
+                ))}
+              </div>
+
+              <div style={{ fontSize: 11, fontWeight: 700, color: c.warning, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Points faibles / risques</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                {localAnalysis.weaknesses.map((s, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.5 }}><AlertTriangle size={13} color={c.warning} style={{ flexShrink: 0, marginTop: 2 }} /><span>{s}</span></div>
+                ))}
+              </div>
+
+              <div style={{ fontSize: 11, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Recommandations</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {localAnalysis.recommendations.map((s, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.5 }}><TrendingUp size={13} color={c.electric2} style={{ flexShrink: 0, marginTop: 2 }} /><span>{s}</span></div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <button onClick={() => setShowAiSection(!showAiSection)} style={{ background: "none", border: "none", color: c.muted, fontSize: 11.5, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, padding: 0, marginBottom: showAiSection ? 10 : 0 }}>
+            <ChevronDown size={13} style={{ transform: showAiSection ? "rotate(180deg)" : "none" }} /> Analyse IA avancée (optionnel, nécessite ta propre clé API)
+          </button>
+
+          {showAiSection && (
+            !aiApiKey ? (
+              showAiKeyForm ? (
+                <div style={{ background: c.surface2, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                  <p style={{ fontSize: 11.5, color: c.muted, margin: 0, lineHeight: 1.5 }}>
+                    Colle ta clé API Anthropic (créée sur <span style={{ color: c.electric2 }}>console.anthropic.com</span>). Elle reste uniquement sur cet appareil — jamais envoyée à N2Koaching ni à Supabase — et les appels sont facturés sur ton propre compte Anthropic.
+                  </p>
+                  <input type="password" value={aiKeyInput} onChange={e => setAiKeyInput(e.target.value)} placeholder="sk-ant-..." style={{ ...inputStyle(c), fontSize: 12.5 }} />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <SecondaryBtn c={c} full onClick={() => setShowAiKeyForm(false)}>Annuler</SecondaryBtn>
+                    <PrimaryBtn c={c} full disabled={!aiKeyInput.trim()} onClick={saveAiKey}>Enregistrer</PrimaryBtn>
+                  </div>
+                </div>
+              ) : (
+                <SecondaryBtn c={c} full icon={Sparkles} onClick={() => setShowAiKeyForm(true)}>Configurer l'analyse IA</SecondaryBtn>
+              )
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 8, marginBottom: aiResult || aiError ? 12 : 0 }}>
+                  <PrimaryBtn c={c} full icon={Sparkles} disabled={aiAnalyzing || totalSessions === 0} onClick={runAiAnalysis}>
+                    {aiAnalyzing ? "Analyse en cours..." : "Analyser avec l'IA"}
+                  </PrimaryBtn>
+                  <SecondaryBtn c={c} icon={X} onClick={() => { clearApiKey(); setAiApiKey(""); setAiResult(""); setAiError(""); }} />
+                </div>
+                {aiError && <div style={{ fontSize: 12, color: c.danger, background: "rgba(255,59,48,0.1)", padding: "10px 12px", borderRadius: 10 }}>{aiError}</div>}
+                {aiResult && (
+                  <div style={{ background: c.surface2, borderRadius: 12, padding: 14, fontSize: 12.5, lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 400, overflowY: "auto" }}>
+                    {aiResult.split(/\*\*(.+?)\*\*/g).map((part, i) => i % 2 === 1 ? <b key={i} style={{ color: c.electric2 }}>{part}</b> : part)}
+                  </div>
+                )}
+              </>
+            )
+          )}
+        </div>
 
         <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
           <SecondaryBtn c={c} full onClick={onCancel}>Annuler</SecondaryBtn>
@@ -4061,9 +4700,8 @@ const ExerciseProgressChart = ({ c, profileId }) => {
 
   return (
     <div>
-      <select value={selected} onChange={e => setSelected(e.target.value)} style={{ ...inputStyle(c), marginBottom: 12, padding: "9px 10px", fontSize: 12.5 }}>
-        {names.map(n => <option key={n} value={n}>{n}</option>)}
-      </select>
+      <CustomSelect c={c} value={selected} onChange={setSelected} style={{ marginBottom: 12, padding: "9px 10px", fontSize: 12.5 }}
+        options={names.map(n => ({ value: n, label: n }))} />
       {loadingHistory ? (
         <div style={{ textAlign: "center", padding: 20, color: c.muted, fontSize: 12 }}>Chargement...</div>
       ) : chartData.length < 2 ? (
@@ -4085,6 +4723,59 @@ const ExerciseProgressChart = ({ c, profileId }) => {
           </div>
         </>
       )}
+    </div>
+  );
+};
+
+const ClientDossierPanel = ({ c, client }) => {
+  const assigned = resolveAssignedProgram(client);
+  const streakInfo = computeRealStreak(client.completedSessions || {}, client.streakFreezeUsedAt);
+  const row = (label, value) => (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: `1px solid ${c.border}` }}>
+      <span style={{ fontSize: 12, color: c.muted }}>{label}</span>
+      <span style={{ fontSize: 12.5, fontWeight: 600, textAlign: "right", maxWidth: "60%" }}>{value ?? "—"}</span>
+    </div>
+  );
+
+  return (
+    <div style={{ maxHeight: 460, overflowY: "auto" }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Informations personnelles</div>
+      <div style={{ marginBottom: 16 }}>
+        {row("Email", client.email)}
+        {row("Âge", client.age ? `${client.age} ans` : null)}
+        {row("Genre", client.gender === "femme" ? "Femme" : client.gender === "homme" ? "Homme" : null)}
+        {row("Taille", client.height ? `${client.height} cm` : null)}
+        {row("Poids actuel", client.weight ? `${client.weight} kg` : null)}
+        {row("Objectif", client.goal)}
+        {row("Niveau sportif", client.sportLevel)}
+        {row("Fréquence visée", client.trainingFrequency ? `${client.trainingFrequency}x / semaine` : null)}
+      </div>
+
+      {client.injuries && (
+        <>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: c.warning, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Blessures / limitations signalées</div>
+          <div style={{ background: "rgba(255,159,10,0.1)", borderRadius: 10, padding: 10, fontSize: 12.5, marginBottom: 16, lineHeight: 1.5 }}>{client.injuries}</div>
+        </>
+      )}
+
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Compte & abonnement</div>
+      <div style={{ marginBottom: 16 }}>
+        {row("Statut", client.status === "approved" ? "Actif" : client.status === "revoked" ? "Révoqué" : client.status)}
+        {row("Inscrit depuis le", client.createdAt ? new Date(client.createdAt).toLocaleDateString("fr-FR") : null)}
+        {row("Accès", client.accessExpiresAt ? new Date(client.accessExpiresAt).toLocaleDateString("fr-FR") : "Illimité")}
+        {client.revokeReason && row("Motif de révocation", client.revokeReason)}
+      </div>
+
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Programme & progression</div>
+      <div style={{ marginBottom: 4 }}>
+        {row("Programme assigné", assigned ? assigned.name : "Aucun (bibliothèque libre)")}
+        {row("Niveau", client.level)}
+        {row("XP total", client.xp?.toLocaleString("fr-FR"))}
+        {row("Série actuelle", `${streakInfo.streak} jour${streakInfo.streak > 1 ? "s" : ""}`)}
+        {row("Séances complétées", client.sessionsCompleted)}
+        {row("Temps total", fmtMin(client.totalMinutes || 0))}
+        {row("Calories cumulées", client.calories?.toLocaleString("fr-FR"))}
+      </div>
     </div>
   );
 };
@@ -4277,6 +4968,155 @@ const ClientPhotosPanel = ({ c, clientId, onZoom }) => {
   );
 };
 
+const ClientDetailScreen = ({ c, client, onBack, onAssignLibrary, onSaveCustom, templates, otherClients, onSaveTemplate, onRevoke, onRestore, onRenew }) => {
+  const [tab, setTab] = useState("dossier");
+  const [zoomUrl, setZoomUrl] = useState(null);
+  const [showRevokeForm, setShowRevokeForm] = useState(false);
+  const [revokeReasonText, setRevokeReasonText] = useState("");
+  const [showRenew, setShowRenew] = useState(false);
+  const [renewDuration, setRenewDuration] = useState(30);
+
+  const assigned = resolveAssignedProgram(client);
+  const expired = client.status === "approved" && client.accessExpiresAt && new Date(client.accessExpiresAt) < new Date();
+
+  const TABS = [
+    { id: "dossier", l: "Dossier", icon: FileText },
+    { id: "program", l: "Programme", icon: Edit3 },
+    { id: "messages", l: "Messages", icon: MessageCircle },
+    { id: "photos", l: "Photos", icon: Camera },
+    { id: "feedback", l: "Ressenti", icon: Activity },
+    { id: "charges", l: "Charges", icon: Dumbbell },
+  ];
+
+  return (
+    <div className="anim-fadeIn">
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: c.text, display: "flex", flexShrink: 0 }}><ArrowLeft size={20} /></button>
+        <div style={{ width: 38, height: 38, borderRadius: "50%", background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+          {client.name.charAt(0)}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{client.name}</div>
+          <div style={{ fontSize: 11, color: c.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{client.email}</div>
+        </div>
+        {client.status === "approved" && !expired && <Pill c={c} tone="success">Actif</Pill>}
+        {expired && <Pill c={c} tone="danger">Expiré</Pill>}
+        {client.status === "revoked" && <Pill c={c} tone="danger">Révoqué</Pill>}
+      </div>
+
+      {client.status === "approved" && (
+        <>
+          <Card c={c} style={{ marginBottom: 14, padding: 12 }}>
+            <div style={{ fontSize: 11.5, color: expired ? c.danger : c.muted, marginBottom: (expired || showRenew) ? 10 : 0 }}>
+              {client.accessExpiresAt
+                ? `${expired ? "Expiré le" : "Accès valide jusqu'au"} ${new Date(client.accessExpiresAt).toLocaleDateString("fr-FR")}`
+                : "Accès illimité"}
+              {!expired && (
+                <button onClick={() => setShowRenew(!showRenew)} style={{ background: "none", border: "none", color: c.electric2, fontSize: 11, cursor: "pointer", marginLeft: 8, padding: 0 }}>Modifier</button>
+              )}
+            </div>
+            {(expired || showRenew) && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {DURATION_OPTIONS.map(opt => (
+                    <button key={opt.label} onClick={() => setRenewDuration(opt.days)} style={{
+                      padding: "6px 11px", borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                      border: `1px solid ${renewDuration === opt.days ? "transparent" : c.border}`,
+                      background: renewDuration === opt.days ? c.gradA : c.surface2, color: renewDuration === opt.days ? "#fff" : c.muted
+                    }}>{opt.label}</button>
+                  ))}
+                </div>
+                <PrimaryBtn c={c} full icon={RefreshCw} onClick={() => { onRenew(client, renewDuration); setShowRenew(false); }}>Renouveler</PrimaryBtn>
+              </div>
+            )}
+          </Card>
+
+          <div className="scrollbar-none" style={{ display: "flex", gap: 6, marginBottom: 16, overflowX: "auto" }}>
+            {TABS.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)} style={{
+                flexShrink: 0, display: "flex", alignItems: "center", gap: 5, padding: "8px 13px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                border: `1px solid ${tab === t.id ? "transparent" : c.border}`,
+                background: tab === t.id ? c.gradA : c.surface2, color: tab === t.id ? "#fff" : c.muted
+              }}><t.icon size={12} />{t.l}</button>
+            ))}
+          </div>
+
+          {tab === "dossier" && <ClientDossierPanel c={c} client={client} />}
+
+          {tab === "program" && (
+            <div>
+              <div style={{ fontSize: 11.5, color: c.muted, marginBottom: 8 }}>
+                Programme actuel : <b style={{ color: c.text }}>{assigned ? assigned.name : "Aucun (bibliothèque libre)"}</b>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <CustomSelect c={c} value={client.assignedProgramId || ""} onChange={(v) => onAssignLibrary(client, v)} placeholder="— Assigner depuis la bibliothèque —"
+                  options={PROGRAMS.map(p => ({ value: p.id, label: p.name }))} />
+              </div>
+              <ProgramBuilder c={c} client={client} onCancel={() => setTab("dossier")} onSave={(prog) => onSaveCustom(client, prog)}
+                templates={templates} otherClients={otherClients} onSaveTemplate={onSaveTemplate} />
+            </div>
+          )}
+
+          {tab === "messages" && (
+            <div style={{ height: 420, background: c.surface2, borderRadius: 14, padding: 12 }}>
+              <MessageThread c={c} clientId={client.id} isAdmin={true} peerName={client.name} />
+            </div>
+          )}
+
+          {tab === "photos" && (
+            <div style={{ background: c.surface2, borderRadius: 14, padding: 12 }}>
+              <ClientPhotosPanel c={c} clientId={client.id} onZoom={setZoomUrl} />
+            </div>
+          )}
+
+          {tab === "feedback" && (
+            <div style={{ background: c.surface2, borderRadius: 14, padding: 12 }}>
+              <ClientFeedbackPanel c={c} clientId={client.id} />
+            </div>
+          )}
+
+          {tab === "charges" && (
+            <div style={{ background: c.surface2, borderRadius: 14, padding: 12 }}>
+              <ClientChargesPanel c={c} client={client} />
+            </div>
+          )}
+
+          <div style={{ marginTop: 20 }}>
+            {showRevokeForm ? (
+              <Card c={c} style={{ background: "rgba(255,59,48,0.08)", border: `1px solid ${c.danger}`, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: c.danger }}>Révoquer l'accès de {client.name}</div>
+                <textarea value={revokeReasonText} onChange={e => setRevokeReasonText(e.target.value)} placeholder="Motif visible par le client (optionnel)"
+                  style={{ ...inputStyle(c), minHeight: 60, resize: "vertical", fontSize: 12.5 }} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <SecondaryBtn c={c} full onClick={() => { setShowRevokeForm(false); setRevokeReasonText(""); }}>Annuler</SecondaryBtn>
+                  <PrimaryBtn c={c} full icon={Lock} style={{ background: c.danger }} onClick={() => { onRevoke(client, revokeReasonText.trim()); setShowRevokeForm(false); setRevokeReasonText(""); }}>Révoquer</PrimaryBtn>
+                </div>
+              </Card>
+            ) : (
+              <button onClick={() => setShowRevokeForm(true)} style={{ background: "none", border: "none", color: c.danger, fontSize: 11.5, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, padding: 0 }}>
+                <Lock size={12} /> Révoquer l'accès
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {client.status === "revoked" && (
+        <Card c={c}>
+          {client.revokeReason && (
+            <div style={{ background: c.surface2, borderRadius: 10, padding: 10, marginBottom: 10, fontSize: 12, color: c.muted }}>
+              <b style={{ color: c.text }}>Motif :</b> {client.revokeReason}
+            </div>
+          )}
+          <SecondaryBtn c={c} full icon={ShieldCheck} onClick={() => onRestore(client)}>Réactiver l'accès</SecondaryBtn>
+        </Card>
+      )}
+
+      {zoomUrl && <PhotoViewer url={zoomUrl} onClose={() => setZoomUrl(null)} />}
+    </div>
+  );
+};
+
 const DURATION_OPTIONS = [
   { label: "1 semaine", days: 7 },
   { label: "1 mois", days: 30 },
@@ -4286,12 +5126,33 @@ const DURATION_OPTIONS = [
   { label: "Illimité", days: null },
 ];
 
+const ClientListRow = ({ c, client, onOpen }) => {
+  const expired = client.status === "approved" && client.accessExpiresAt && new Date(client.accessExpiresAt) < new Date();
+  const realStreak = computeRealStreak(client.completedSessions || {}, client.streakFreezeUsedAt).streak;
+  return (
+    <Card c={c} onClick={onOpen} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+      <div style={{ width: 40, height: 40, borderRadius: "50%", background: c.gradA, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
+        {client.name.charAt(0)}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{client.name}</div>
+        <div style={{ fontSize: 11, color: c.muted }}>{realStreak > 0 ? `🔥 ${realStreak}j · ` : ""}Actif {fmtRelative(client.lastSessionAt)}</div>
+      </div>
+      {client.status === "approved" && !expired && <Pill c={c} tone="success">Actif</Pill>}
+      {expired && <Pill c={c} tone="danger">Expiré</Pill>}
+      {client.status === "revoked" && <Pill c={c} tone="danger">Révoqué</Pill>}
+      <ChevronRight size={16} color={c.muted} style={{ flexShrink: 0 }} />
+    </Card>
+  );
+};
+
 const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuilder, editing, onCloseBuilder, onSaveCustom, templates, otherClients, onSaveTemplate, onRevoke, onRestore, onRenew }) => {
   const assigned = resolveAssignedProgram(client);
   const [showChat, setShowChat] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [showCharges, setShowCharges] = useState(false);
+  const [showDossier, setShowDossier] = useState(false);
   const [zoomUrl, setZoomUrl] = useState(null);
   const [showRevokeForm, setShowRevokeForm] = useState(false);
   const [revokeReasonText, setRevokeReasonText] = useState("");
@@ -4371,19 +5232,27 @@ const ClientRow = ({ c, client, onApprove, onReject, onAssignLibrary, onOpenBuil
             </button>
           )}
 
-          <div style={{ display: "flex", gap: 8, marginBottom: (editing || showChat || showPhotos || showFeedback || showCharges) ? 12 : 8 }}>
-            <select style={{ ...inputStyle(c), flex: 1, padding: "9px 10px", fontSize: 12.5 }} value={client.assignedProgramId || ""} onChange={e => onAssignLibrary(client, e.target.value)}>
-              <option value="">— Assigner depuis la bibliothèque —</option>
-              {PROGRAMS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-            <SecondaryBtn c={c} icon={Edit3} onClick={() => { onOpenBuilder(client); setShowChat(false); setShowPhotos(false); setShowFeedback(false); setShowCharges(false); }}>{editing ? "Fermer" : "Sur-mesure"}</SecondaryBtn>
-            <SecondaryBtn c={c} icon={MessageCircle} onClick={() => { setShowChat(!showChat); setShowPhotos(false); setShowFeedback(false); setShowCharges(false); if (editing) onCloseBuilder(); }} />
-            <SecondaryBtn c={c} icon={Camera} onClick={() => { setShowPhotos(!showPhotos); setShowChat(false); setShowFeedback(false); setShowCharges(false); if (editing) onCloseBuilder(); }} />
-            <SecondaryBtn c={c} icon={Activity} onClick={() => { setShowFeedback(!showFeedback); setShowChat(false); setShowPhotos(false); setShowCharges(false); if (editing) onCloseBuilder(); }} />
-            <SecondaryBtn c={c} icon={Dumbbell} onClick={() => { setShowCharges(!showCharges); setShowChat(false); setShowPhotos(false); setShowFeedback(false); if (editing) onCloseBuilder(); }} />
+          <div style={{ display: "flex", gap: 8, marginBottom: (editing || showChat || showPhotos || showFeedback || showCharges || showDossier) ? 12 : 8 }}>
+            <div style={{ flex: 1 }}>
+              <CustomSelect c={c} value={client.assignedProgramId || ""} onChange={(v) => onAssignLibrary(client, v)} placeholder="— Assigner depuis la bibliothèque —"
+                options={PROGRAMS.map(p => ({ value: p.id, label: p.name }))} />
+            </div>
+            <SecondaryBtn c={c} icon={Edit3} onClick={() => { onOpenBuilder(client); setShowChat(false); setShowPhotos(false); setShowFeedback(false); setShowCharges(false); setShowDossier(false); }}>{editing ? "Fermer" : "Sur-mesure"}</SecondaryBtn>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: (editing || showChat || showPhotos || showFeedback || showCharges || showDossier) ? 12 : 8 }}>
+            <SecondaryBtn c={c} full icon={FileText} onClick={() => { setShowDossier(!showDossier); setShowChat(false); setShowPhotos(false); setShowFeedback(false); setShowCharges(false); if (editing) onCloseBuilder(); }}>Dossier</SecondaryBtn>
+            <SecondaryBtn c={c} icon={MessageCircle} onClick={() => { setShowChat(!showChat); setShowPhotos(false); setShowFeedback(false); setShowCharges(false); setShowDossier(false); if (editing) onCloseBuilder(); }} />
+            <SecondaryBtn c={c} icon={Camera} onClick={() => { setShowPhotos(!showPhotos); setShowChat(false); setShowFeedback(false); setShowCharges(false); setShowDossier(false); if (editing) onCloseBuilder(); }} />
+            <SecondaryBtn c={c} icon={Activity} onClick={() => { setShowFeedback(!showFeedback); setShowChat(false); setShowPhotos(false); setShowCharges(false); setShowDossier(false); if (editing) onCloseBuilder(); }} />
+            <SecondaryBtn c={c} icon={Dumbbell} onClick={() => { setShowCharges(!showCharges); setShowChat(false); setShowPhotos(false); setShowFeedback(false); setShowDossier(false); if (editing) onCloseBuilder(); }} />
           </div>
           {editing && <ProgramBuilder c={c} client={client} onCancel={onCloseBuilder} onSave={(prog) => onSaveCustom(client, prog)}
             templates={templates} otherClients={otherClients} onSaveTemplate={onSaveTemplate} />}
+          {showDossier && (
+            <div style={{ background: c.surface2, borderRadius: 14, padding: 12, marginBottom: 8 }}>
+              <ClientDossierPanel c={c} client={client} />
+            </div>
+          )}
           {showChat && (
             <div style={{ height: 340, background: c.surface2, borderRadius: 14, padding: 12, marginBottom: 8 }}>
               <MessageThread c={c} clientId={client.id} isAdmin={true} peerName={client.name} />
@@ -4616,6 +5485,62 @@ const OverviewTab = ({ c, clients }) => {
   );
 };
 
+const AdminDrawer = ({ c, open, onClose, tab, setTab, pendingCount, clientsCount, onLogout }) => {
+  const items = [
+    { id: "overview", icon: LayoutDashboard, label: "Vue d'ensemble" },
+    { id: "calendar", icon: CalendarIcon, label: "Calendrier" },
+    { id: "pending", icon: ClipboardList, label: "À valider", badge: pendingCount },
+    { id: "clients", icon: Users, label: "Clients", badge: clientsCount },
+  ];
+  return (
+    <>
+      <div onClick={onClose} style={{
+        position: "fixed", inset: 0, zIndex: 350, background: "rgba(0,0,0,0.55)",
+        opacity: open ? 1 : 0, pointerEvents: open ? "auto" : "none", transition: "opacity .25s",
+        animation: open ? "overlayIn .25s ease" : "none"
+      }} />
+      <div style={{
+        position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 360, width: 270,
+        background: c.surface, borderRight: `1px solid ${c.border}`, display: "flex", flexDirection: "column",
+        transform: open ? "translateX(0)" : "translateX(-100%)", transition: "transform .28s cubic-bezier(.16,1,.3,1)",
+        padding: "calc(22px + max(env(safe-area-inset-top), 24px)) 16px 22px", boxShadow: open ? "20px 0 60px rgba(0,0,0,0.3)" : "none"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24, padding: "0 6px" }}>
+          <Logo c={c} size={32} />
+          <span className="ff-display" style={{ fontWeight: 700, fontSize: 17, color: c.text }}>Espace coach</span>
+          <button onClick={onClose} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: c.muted }}><X size={18} /></button>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+          {items.map((it) => {
+            const active = tab === it.id;
+            return (
+              <button key={it.id} onClick={() => { setTab(it.id); onClose(); }} style={{
+                display: "flex", alignItems: "center", gap: 12, padding: "12px 12px", borderRadius: 12, border: "none",
+                background: active ? "rgba(47,107,255,0.15)" : "transparent", color: active ? c.electric2 : c.text,
+                cursor: "pointer", fontSize: 14, fontWeight: active ? 700 : 500, textAlign: "left"
+              }}>
+                <it.icon size={19} />{it.label}
+                {typeof it.badge === "number" && it.badge > 0 && (
+                  <span className="ff-mono" style={{ marginLeft: "auto", background: active ? c.electric2 : c.surface2, color: active ? "#fff" : c.muted, fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 999 }}>{it.badge}</span>
+                )}
+                {!it.badge && active && <div style={{ marginLeft: "auto", width: 6, height: 6, borderRadius: "50%", background: c.electric2 }} />}
+              </button>
+            );
+          })}
+        </div>
+
+        <button onClick={onLogout} style={{
+          display: "flex", alignItems: "center", gap: 12, padding: "12px 12px", borderRadius: 12, border: `1px solid ${c.border}`,
+          background: "transparent", color: c.danger, cursor: "pointer", fontSize: 13.5, fontWeight: 600, marginTop: 10
+        }}>
+          <LogOut size={17} /> Déconnexion
+        </button>
+      </div>
+    </>
+  );
+};
+
 const AdminPanel = ({ c, onExit }) => {
   const [accounts, setAccounts] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -4627,6 +5552,11 @@ const AdminPanel = ({ c, onExit }) => {
   const [broadcastText, setBroadcastText] = useState("");
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastDone, setBroadcastDone] = useState(0);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientFilter, setClientFilter] = useState("all");
+  const [clientSort, setClientSort] = useState("recent");
+  const [selectedClientId, setSelectedClientId] = useState(null);
 
   const load = async () => {
     setLoading(true); setErr("");
@@ -4677,6 +5607,21 @@ const AdminPanel = ({ c, onExit }) => {
   const clients = accounts.filter(a => a.status !== "pending");
   const approvedClients = accounts.filter(a => a.status === "approved");
 
+  const visibleClients = clients
+    .filter(a => {
+      if (clientFilter === "active") return a.status === "approved" && !(a.accessExpiresAt && new Date(a.accessExpiresAt) < new Date());
+      if (clientFilter === "expired") return a.status === "approved" && a.accessExpiresAt && new Date(a.accessExpiresAt) < new Date();
+      if (clientFilter === "revoked") return a.status === "revoked";
+      return true;
+    })
+    .filter(a => !clientSearch.trim() || a.name.toLowerCase().includes(clientSearch.trim().toLowerCase()) || a.email.toLowerCase().includes(clientSearch.trim().toLowerCase()))
+    .sort((a, b) => {
+      if (clientSort === "name") return a.name.localeCompare(b.name);
+      if (clientSort === "sessions") return (b.sessionsCompleted || 0) - (a.sessionsCompleted || 0);
+      if (clientSort === "oldest") return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+      return new Date(b.lastSessionAt || 0) - new Date(a.lastSessionAt || 0); // recent (par défaut)
+    });
+
   const sendBroadcast = async () => {
     if (!broadcastText.trim() || approvedClients.length === 0) return;
     setBroadcasting(true);
@@ -4691,11 +5636,16 @@ const AdminPanel = ({ c, onExit }) => {
 
   return (
     <div className="ff-body scrollbar-none anim-fadeIn" style={{ minHeight: "100vh", background: c.bg, backgroundImage: c.bgGrad, color: c.text }}>
+      <AdminDrawer c={c} open={drawerOpen} onClose={() => setDrawerOpen(false)} tab={tabAdmin} setTab={setTabAdmin}
+        pendingCount={pending.length} clientsCount={clients.length} onLogout={onExit} />
       <div style={{ position: "sticky", top: 0, zIndex: 20, background: c.bg + "ee", backdropFilter: "blur(10px)", borderBottom: `1px solid ${c.border}`, padding: "calc(16px + max(env(safe-area-inset-top), 24px)) 18px 16px", display: "flex", alignItems: "center", gap: 10 }}>
-        <Logo c={c} size={30} />
-        <span className="ff-display" style={{ fontWeight: 700, fontSize: 16, flex: 1 }}>Espace coach</span>
+        <button onClick={() => setDrawerOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", color: c.text, padding: 0, display: "flex" }}>
+          <Menu size={22} />
+        </button>
+        <span className="ff-display" style={{ fontWeight: 700, fontSize: 16, flex: 1 }}>
+          {{ overview: "Vue d'ensemble", calendar: "Calendrier", pending: "À valider", clients: "Clients" }[tabAdmin]}
+        </span>
         <IconBtn icon={RefreshCw} c={c} onClick={load} />
-        <IconBtn icon={LogOut} c={c} onClick={onExit} />
       </div>
 
       <div style={{ padding: 18 }}>
@@ -4748,21 +5698,6 @@ const AdminPanel = ({ c, onExit }) => {
         )}
         {err && <div style={{ fontSize: 12, color: c.danger, background: "rgba(255,59,48,0.1)", padding: "10px 12px", borderRadius: 10, marginBottom: 14 }}>{err}</div>}
 
-        <div className="scrollbar-none" style={{ display: "flex", gap: 8, marginBottom: 16, background: c.surface2, padding: 4, borderRadius: 12, overflowX: "auto" }}>
-          {[
-            { id: "overview", l: "Vue d'ensemble", icon: LayoutDashboard },
-            { id: "calendar", l: "Calendrier", icon: CalendarIcon },
-            { id: "pending", l: `À valider (${pending.length})`, icon: ClipboardList },
-            { id: "clients", l: `Clients (${clients.length})`, icon: Users },
-          ].map(t => (
-            <button key={t.id} onClick={() => setTabAdmin(t.id)} style={{
-              flex: "1 0 auto", padding: "10px 12px", borderRadius: 9, border: "none", cursor: "pointer",
-              background: tabAdmin === t.id ? c.surface : "transparent", color: tabAdmin === t.id ? c.text : c.muted,
-              fontWeight: 700, fontSize: 12, display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap"
-            }}><t.icon size={13} />{t.l}</button>
-          ))}
-        </div>
-
         {loading ? (
           <div style={{ textAlign: "center", padding: 40, color: c.muted }}><RefreshCw className="anim-spin" size={20} style={{ margin: "0 auto 8px" }} /><div style={{ fontSize: 12.5 }}>Chargement des comptes...</div></div>
         ) : (
@@ -4777,19 +5712,52 @@ const AdminPanel = ({ c, onExit }) => {
               ))
             )}
             {tabAdmin === "clients" && (
-              clients.length === 0 ? (
-                <div style={{ textAlign: "center", padding: 30, color: c.muted, fontSize: 13 }}>Aucun client validé pour le moment.</div>
-              ) : clients.map(client => (
-                <ClientRow key={client.id} c={c} client={client} onApprove={approve} onReject={reject}
-                  onAssignLibrary={assignLibrary}
-                  editing={editingId === client.id}
-                  onOpenBuilder={() => setEditingId(editingId === client.id ? null : client.id)}
-                  onCloseBuilder={() => setEditingId(null)}
-                  onSaveCustom={saveCustom}
-                  templates={templates}
-                  otherClients={approvedClients.filter(o => o.id !== client.id && o.customProgram)}
-                  onSaveTemplate={handleSaveTemplate} onRevoke={revoke} onRestore={restore} onRenew={renew} />
-              ))
+              selectedClientId ? (
+                (() => {
+                  const client = accounts.find(a => a.id === selectedClientId);
+                  if (!client) { setSelectedClientId(null); return null; }
+                  return (
+                    <ClientDetailScreen c={c} client={client} onBack={() => setSelectedClientId(null)}
+                      onAssignLibrary={assignLibrary} onSaveCustom={saveCustom}
+                      templates={templates} otherClients={approvedClients.filter(o => o.id !== client.id && o.customProgram)}
+                      onSaveTemplate={handleSaveTemplate} onRevoke={revoke} onRestore={restore} onRenew={renew} />
+                  );
+                })()
+              ) : (
+                <>
+                  <div style={{ position: "relative", marginBottom: 10 }}>
+                    <Search size={15} color={c.muted} style={{ position: "absolute", left: 13, top: 12 }} />
+                    <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Rechercher un client..."
+                      style={{ ...inputStyle(c), paddingLeft: 36 }} />
+                  </div>
+                  <div className="scrollbar-none" style={{ display: "flex", gap: 6, marginBottom: 10, overflowX: "auto" }}>
+                    {[
+                      { id: "all", l: "Tous" }, { id: "active", l: "Actifs" }, { id: "expired", l: "Expirés" }, { id: "revoked", l: "Révoqués" },
+                    ].map(f => (
+                      <button key={f.id} onClick={() => setClientFilter(f.id)} style={{
+                        flexShrink: 0, padding: "7px 13px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                        border: `1px solid ${clientFilter === f.id ? "transparent" : c.border}`,
+                        background: clientFilter === f.id ? c.gradA : c.surface2, color: clientFilter === f.id ? "#fff" : c.muted
+                      }}>{f.l}</button>
+                    ))}
+                  </div>
+                  <CustomSelect c={c} value={clientSort} onChange={setClientSort} style={{ marginBottom: 14, padding: "9px 10px", fontSize: 12.5 }}
+                    options={[
+                      { value: "recent", label: "Trier : Activité récente" },
+                      { value: "name", label: "Trier : Nom (A-Z)" },
+                      { value: "sessions", label: "Trier : Nombre de séances" },
+                      { value: "oldest", label: "Trier : Ancienneté (plus ancien)" },
+                    ]} />
+
+                  {visibleClients.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: 30, color: c.muted, fontSize: 13 }}>
+                      {clients.length === 0 ? "Aucun client validé pour le moment." : "Aucun client ne correspond à ces filtres."}
+                    </div>
+                  ) : visibleClients.map(client => (
+                    <ClientListRow key={client.id} c={c} client={client} onOpen={() => setSelectedClientId(client.id)} />
+                  ))}
+                </>
+              )
             )}
             {tabAdmin === "overview" && <OverviewTab c={c} clients={approvedClients} />}
             {tabAdmin === "calendar" && <MultiClientCalendar c={c} clients={approvedClients} />}

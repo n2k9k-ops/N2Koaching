@@ -360,3 +360,129 @@ Aucun changement SQL — tout réutilise les données déjà stockées (`exercis
 Chaque programme a sa propre sélection d'exercices adaptée à l'objectif (pas les mêmes pools génériques que les programmes existants) — tu peux les voir dans la bibliothèque, catégorie "Force", "Hypertrophie" et "Perte de poids".
 
 **Notes vocales** : bouton micro à côté du champ de message — appuie pour démarrer l'enregistrement, ré-appuie pour l'envoyer directement dans le chat, lecture avec un lecteur audio intégré.
+
+## Menu latéral + tri/filtres clients côté coach
+
+Aucun changement SQL.
+
+**Navigation en menu latéral** : l'espace coach fonctionne maintenant comme côté client — une icône hamburger ouvre un menu qui glisse depuis le côté (Vue d'ensemble, Calendrier, À valider avec badge du nombre, Clients avec badge du nombre) au lieu des onglets horizontaux qui prenaient de la place à l'écran.
+
+**Tri et filtres clients** : dans l'onglet Clients — une barre de recherche (nom/email), des filtres rapides (Tous / Actifs / Expirés / Révoqués), et un tri (Activité récente / Nom A-Z / Nombre de séances / Ancienneté).
+
+## Fixes lisibilité, police cohérente, séance auto-validée, dossier client
+
+Aucun changement SQL.
+
+- **Fix noir sur noir** : le panneau "Installer l'app" (celui accessible une fois connecté) et "Quoi de neuf" étaient illisibles — même bug que la dernière fois, corrigé et redesigné avec de vraies icônes.
+- **Police cohérente partout** : tous les menus déroulants (`<select>` natifs) affichaient le texte avec la police du téléphone au lieu de celle de l'app — limite native impossible à corriger en CSS classique. Remplacés par un composant maison (panneau qui glisse depuis le bas) partout dans l'app.
+- **Séance auto-validée** : terminer le dernier exercice en mode focus valide directement la séance et enchaîne sur le ressenti — plus besoin de cliquer "Terminer la séance" en plus.
+- **Dossier client complet** (coach) : nouveau bouton "Dossier" sur chaque client — infos personnelles (âge, genre, taille, poids, objectif, blessures), infos de compte (statut, inscription, expiration), et progression (programme, niveau, XP, série, séances, temps, calories), tout au même endroit.
+
+## Espace coach — gestion des clients redesignée
+
+Aucun changement SQL.
+
+Le problème identifié : chaque fiche client dans la liste avait accumulé 6 boutons-icônes (Dossier, Messages, Photos, Ressenti, Charges, Sur-mesure) empilés dans une carte qui s'étirait — pas clair, pas engageant.
+
+**Nouveau fonctionnement** : la liste des clients est maintenant épurée (avatar, nom, statut, dernière activité). Un tap ouvre une vraie fiche client dédiée en plein écran, avec une navigation par onglets propre : **Dossier** (infos complètes), **Programme** (assignation + constructeur sur-mesure), **Messages**, **Photos**, **Ressenti**, **Charges**. Même principe de navigation que le reste de l'app, plus rien d'entassé.
+
+## Réorganiser les exercices, substitution "machine indisponible"
+
+Aucun changement SQL.
+
+**Réorganiser l'ordre** :
+- **Coach** : dans le constructeur sur-mesure, des flèches haut/bas sur chaque exercice ajouté.
+- **Client** : dans le détail d'une séance, avant de la démarrer (les flèches disparaissent une fois la séance commencée pour ne pas mélanger la progression déjà loggée).
+
+**Machine indisponible ?** : en plein exercice (mode focus), un lien discret "Machine indisponible ? Remplacer cet exercice" — l'app pioche un exercice équivalent (même catégorie musculaire) dans la bibliothèque, et remet l'exercice original **plus tard dans la même séance** pour que le client puisse retenter une fois la machine libérée.
+
+## Tableau de bord client épuré
+
+Aucun changement SQL.
+
+Le tableau de bord ne montre plus que l'essentiel : ta séance du jour à lancer en un tap, l'alerte d'expiration d'abonnement si besoin, et rien d'autre. Tout le reste (statistiques, badges, points de la semaine, graphique d'activité) a été déplacé — pas supprimé — vers **Profil** (stats + points de la semaine) et **Calendrier** (graphique d'activité hebdomadaire), là où ça a plus de sens contextuellement. "Défis du jour" a été retiré (les seuils étaient arbitraires, ça n'apportait pas grand-chose).
+
+## Analyse IA d'un programme (coach)
+
+⚠️ **Explication technique honnête, à lire avant d'utiliser cette fonctionnalité.**
+
+Cette app n'a pas de serveur à elle (pas de backend dédié comme pour Stripe) — donc pour qu'un vrai modèle d'IA analyse un programme, il faut passer par **ta propre clé API Anthropic**, appelée directement depuis ton navigateur.
+
+**Comment ça marche concrètement :**
+1. Crée un compte sur [console.anthropic.com](https://console.anthropic.com) si tu n'en as pas.
+2. Génère une clé API (section "API Keys"), et crédite ton compte de quelques dollars (l'usage est facturé à l'usage, très peu cher pour ce genre d'analyse ponctuelle).
+3. Dans le constructeur de programme sur-mesure, section "Analyse IA" → colle ta clé une fois.
+4. Ta clé est stockée **uniquement dans le navigateur de ton appareil** (jamais envoyée à N2Koaching, ni à Supabase, ni à moi) — si tu changes de téléphone/ordinateur ou vides le cache, il faudra la recoller.
+5. Chaque clic sur "Analyser ce programme" envoie le détail du programme (exercices, séries, reps, repos) à Claude, qui répond avec une analyse structurée : points forts, points faibles/risques, recommandations concrètes, note sur 10 — basée sur des repères réels de science du sport (volume par groupe musculaire, équilibre push/pull/legs, récupération, etc.), pas des généralités.
+
+**Limites à connaître :**
+- **Coût** : chaque analyse consomme des crédits sur ton compte Anthropic (quelques centimes par analyse avec le modèle utilisé). Ce n'est pas gratuit, ce n'est pas inclus dans N2Koaching.
+- **Pas de backend = pas de partage entre appareils.** Si tu utilises l'app coach depuis plusieurs appareils, il faudra reconfigurer la clé sur chacun.
+- **Sécurité** : la clé transite directement de ton navigateur vers l'API Anthropic (chiffré en HTTPS), sans passer par aucun serveur intermédiaire — c'est le pattern documenté par Anthropic pour ce type d'usage personnel/prototype. Ne partage jamais cette clé, et régénère-la si tu penses qu'elle a fuité.
+- Le modèle utilisé est `claude-sonnet-5` (modifiable dans `src/lib/aiAnalysis.js` si tu veux un modèle différent).
+
+## Analyse de programme gratuite (sans clé API)
+
+Aucun changement SQL.
+
+Suite à la question "y'a pas d'autre moyen gratuit ?" — oui : un vrai moteur d'analyse **basé sur des règles de science du sport réelles**, calculé entièrement dans le navigateur, sans aucun appel réseau ni clé API. C'est maintenant le bouton par défaut ("Analyser ce programme") dans le constructeur sur-mesure.
+
+Ce qu'il vérifie concrètement :
+- **Volume hebdomadaire par groupe musculaire** (nombre de séries/semaine) — signale si un groupe majeur est en dessous de ~8 séries/semaine (repère bas pour progresser) ou au-dessus de ~26 (risque de non-récupération), en s'appuyant sur les repères courants de la littérature (10-20 séries/semaine/groupe pour l'hypertrophie).
+- **Équilibre poussée/tirage** — un excès de volume poussée (pecs/épaules/triceps) par rapport au tirage (dos/biceps) est un facteur de risque documenté pour la posture et les douleurs d'épaule.
+- **Récupération** — détecte les enchaînements de 5 jours ou plus sans repos, et l'absence totale de jour de repos dans le cycle.
+- **Ordre des exercices** — vérifie que les mouvements polyarticulaires (squat, développé, tirage...) sont placés avant les exercices d'isolation.
+- **Adéquation reps/objectif** — compare la plage de répétitions moyenne du programme à l'objectif annoncé (force → reps basses, hypertrophie → reps modérées).
+
+Résultat : une note sur 10, des points forts, des points faibles avec l'explication du "pourquoi", et des recommandations concrètes — instantané, gratuit, pour toujours.
+
+**L'analyse IA avec clé API personnelle reste disponible** en dessous, repliée par défaut, pour ceux qui veulent une analyse encore plus poussée et sont prêts à payer le coût (minime) de l'API.
+
+## Analyse gratuite enrichie — 7 vérifications de plus
+
+Aucun changement SQL. Toujours zéro coût, zéro appel réseau.
+
+En plus des 5 vérifications précédentes, l'analyse détecte maintenant :
+- **Jambes vs haut du corps** — le classique "jour de jambes sauté" (volume jambes nul ou très faible alors que le haut du corps est bien développé).
+- **Fréquence par groupe musculaire** — signale les groupes travaillés une seule fois par semaine (répartir sur 2 séances est généralement plus efficace à volume égal).
+- **Présence d'abdominaux/gainage** — souvent oublié.
+- **Variété des mouvements** — repère un volume élevé concentré sur un seul exercice sans variation d'angle.
+- **Doublons** — un même exercice ajouté deux fois dans la même séance (souvent une erreur de saisie).
+- **Volume par séance** — alerte si une séance dépasse ~28 séries au total (fatigue accumulée, qualité d'exécution qui chute).
+- **Travail unilatéral** — vérifie la présence d'exercices un bras/une jambe pour corriger les asymétries.
+
+## Répartition visuelle par muscle
+
+Aucun changement SQL. Toujours gratuit, toujours instantané.
+
+L'analyse affiche maintenant une vraie répartition visuelle en haut du résultat : une barre par muscle (Pectoraux, Dos, Épaules, Biceps, Triceps, Quadriceps, Ischios & Fessiers, Mollets, Abdominaux) avec le nombre de séries/semaine et le poids relatif de chacun dans le volume total du programme. Les muscles à 0 série apparaissent clairement marqués "non travaillé", et sont désormais listés explicitement dans les points faibles si le programme est censé être complet.
+
+## Détail anatomique fin (chefs musculaires)
+
+Aucun changement SQL. Toujours gratuit, toujours instantané.
+
+Suite à la demande "je veux du détail genre brachial" — l'analyse va maintenant plus loin que les catégories larges (Biceps, Dos, etc.) et détecte, exercice par exercice, quel **chef musculaire précis** est réellement sollicité, en s'appuyant sur la biomécanique réelle de chaque mouvement :
+
+- **Biceps** → chef long (pic), chef court, brachial (épaisseur du bras)
+- **Triceps** → chef long, latéral, médial
+- **Dos** → grand dorsal (largeur), trapèzes/milieu du dos, érecteurs spinaux (bas du dos)
+- **Épaules** → deltoïde antérieur, latéral, postérieur
+- **Pectoraux** → faisceau supérieur (haut), faisceau sternal (milieu/bas)
+- **Quadriceps** → vastes (global), droit fémoral (isolé)
+- **Ischios & Fessiers** → ischio-jambiers, grand fessier
+- **Mollets** → gastrocnémien, soléaire
+- **Abdominaux** → grand droit, obliques, gainage profond
+
+Pour chaque muscle avec du volume, une liste ✓/✗ montre précisément quels angles sont couverts — et génère une recommandation concrète pour ceux qui manquent (ex : "Biceps : aucun exercice ne cible le brachial — ajouter du curl marteau"), plutôt que de se contenter de dire "volume suffisant" sans vérifier que le développement est complet.
+
+## Analyse croisée avec le client (blessures, niveau, fatigue cumulée)
+
+Aucun changement SQL. Toujours gratuit, toujours instantané.
+
+**Croisement avec les blessures signalées** : l'analyse utilise maintenant le champ "blessures/limitations" déjà rempli à l'inscription du client. Si le programme contient un exercice potentiellement à risque pour la zone déclarée (ex : squat profond pour un genou sensible, développé militaire pour une épaule signalée), une alerte explicite apparaît avec le nom exact de l'exercice concerné.
+
+**Seuils adaptés au niveau** : les repères de volume (séries/semaine par groupe musculaire) ne sont plus fixes — ils s'ajustent selon que le client est débutant (seuils plus bas, cohérent avec un volume minimum efficace inférieur pour un système non entraîné), intermédiaire, ou avancé (tolère et bénéficie souvent d'un volume plus élevé). Les recommandations d'angles musculaires manquants (biceps/brachial etc.) ne sont affichées que pour intermédiaire/avancé — un débutant n'a pas besoin de cette granularité tout de suite.
+
+**Fatigue cumulée** : détecte quand plusieurs mouvements lourds sollicitant la même chaîne (ex : squat + soulevé de terre) sont programmés le même jour, avec un risque de compromettre la technique sur le second mouvement par fatigue accumulée.
+
+⚠️ **Sur les asymétries gauche/droite** — honnêteté : une vraie détection basée sur les charges réellement soulevées de chaque côté nécessiterait de logger séparément quel côté a été fait à chaque série (l'app ne le fait pas actuellement, `exercise_logs` ne distingue pas gauche/droite). Ce qui est fait aujourd'hui, c'est vérifier la *présence* de travail unilatéral dans le programme (pas la comparaison de charge réelle entre les deux côtés). Si tu veux la vraie version (à partir des données loggées), c'est faisable mais ça demande d'ajouter un champ "côté" au moment de logger une série — dis-moi si tu veux qu'on le fasse.
