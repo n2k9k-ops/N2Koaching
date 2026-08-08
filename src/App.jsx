@@ -667,6 +667,29 @@ const INJURY_RISK_MAP = [
   { zone: "hanche", keywords: ["hanche", "hip"], riskyExercises: ["squat", "fente", "hip thrust", "soulevé de terre"] },
 ];
 
+/** Choisit le jour le plus pertinent où ajouter un exercice d'une catégorie
+ *  donnée : en priorité un jour qui travaille déjà des catégories liées,
+ *  sinon le jour actif le moins chargé. Retourne l'index (0-6) ou null. */
+function pickTargetDayIndex(customSessions, cat) {
+  const active = customSessions.map((d, i) => ({ d, i })).filter(x => !x.d.rest && x.d.exercises && x.d.exercises.length > 0);
+  if (active.length === 0) return null;
+  const related = active.find(x => x.d.exercises.some(e => e.cat === cat));
+  if (related) return related.i;
+  active.sort((a, b) => a.d.exercises.length - b.d.exercises.length);
+  return active[0].i;
+}
+
+/** Propose un exercice concret de la bibliothèque pour combler un manque
+ *  détecté (catégorie manquante, ou angle précis via des mots-clés). */
+function suggestExercise(cat, location, existingNames, keywordFilter) {
+  let candidates = EXERCISE_LIBRARY.filter(e => e.cat === cat && (e.location === location || e.location === "both") && !existingNames.has(e.name));
+  if (keywordFilter && keywordFilter.length > 0) {
+    const filtered = candidates.filter(e => keywordFilter.some(k => e.name.toLowerCase().includes(k)));
+    if (filtered.length > 0) candidates = filtered;
+  }
+  return candidates[0] || null;
+}
+
 function analyzeProgramLocally(program, client) {
   const strengths = [];
   const weaknesses = [];
@@ -678,6 +701,8 @@ function analyzeProgramLocally(program, client) {
 
   const days = (program.customSessions || []).filter(d => !d.rest && d.exercises && d.exercises.length > 0);
   const restDays = 7 - days.length;
+  const fixes = [];
+  const existingNames = new Set(days.flatMap(d => d.exercises.map(e => e.name)));
 
   // --- Croisement avec les blessures signalées à l'inscription ---
   if (client?.injuries && client.injuries.trim()) {
@@ -713,6 +738,14 @@ function analyzeProgramLocally(program, client) {
   if (untouchedMuscles.length > 0 && days.length >= 3) {
     weaknesses.push(`Aucun volume détecté sur : ${untouchedMuscles.join(", ")}. À vérifier que c'est intentionnel (spécialisation, contre-indication) plutôt qu'un oubli.`);
     score -= untouchedMuscles.length >= 3 ? 1 : 0.5;
+    untouchedMuscles.forEach(cat => {
+      const targetDay = pickTargetDayIndex(program.customSessions, cat);
+      const exercise = suggestExercise(cat, program.location, existingNames);
+      if (targetDay !== null && exercise) {
+        fixes.push({ id: `add-${cat}`, label: `Ajouter "${exercise.name}" (${cat})`, type: "add", dayIndex: targetDay, exercise });
+        existingNames.add(exercise.name);
+      }
+    });
   }
 
   // --- Détail anatomique fin : quels chefs musculaires sont réellement couverts ---
@@ -732,6 +765,15 @@ function analyzeProgramLocally(program, client) {
     const missing = covered.filter(s => !s.covered);
     if (missing.length > 0 && missing.length < rules.length && !isBeginner) {
       recommendations.push(`${cat} : aucun exercice ne cible spécifiquement "${missing.map(m => m.name).join(", ")}" — ajouter un mouvement dans cet angle pour un développement complet, pas seulement un volume total suffisant.`);
+      missing.forEach(sm => {
+        const rule = rules.find(r => r.name === sm.name);
+        const targetDay = pickTargetDayIndex(program.customSessions, cat);
+        const exercise = suggestExercise(cat, program.location, existingNames, rule?.keywords);
+        if (targetDay !== null && exercise) {
+          fixes.push({ id: `add-angle-${cat}-${sm.name}`, label: `Ajouter "${exercise.name}" (${sm.name})`, type: "add", dayIndex: targetDay, exercise });
+          existingNames.add(exercise.name);
+        }
+      });
     }
   });
 
@@ -873,11 +915,15 @@ function analyzeProgramLocally(program, client) {
 
   // --- Doublons d'exercices au sein d'une même séance (souvent une erreur de saisie) ---
   let duplicateFound = false;
-  days.forEach(d => {
-    const seen = new Set();
-    d.exercises.forEach(e => {
-      if (seen.has(e.name)) duplicateFound = true;
-      seen.add(e.name);
+  (program.customSessions || []).forEach((d, dayIdx) => {
+    if (d.rest || !d.exercises) return;
+    const seen = new Map();
+    d.exercises.forEach((e, exIdx) => {
+      if (seen.has(e.name)) {
+        duplicateFound = true;
+        fixes.push({ id: `dup-${dayIdx}-${exIdx}`, label: `Supprimer le doublon "${e.name}" (${d.title || "séance"})`, type: "removeDuplicate", dayIndex: dayIdx, exerciseIndex: exIdx });
+      }
+      seen.set(e.name, exIdx);
     });
   });
   if (duplicateFound) {
@@ -926,7 +972,7 @@ function analyzeProgramLocally(program, client) {
   if (weaknesses.length === 0) weaknesses.push("Aucun point faible majeur détecté par cette analyse automatique.");
   if (recommendations.length === 0) recommendations.push("Continuer à suivre la progression de charge et ajuster selon le ressenti du client.");
 
-  return { score, strengths, weaknesses, recommendations, daysTrained: days.length, restDays, muscleBreakdown, subMuscleDetail };
+  return { score, strengths, weaknesses, recommendations, daysTrained: days.length, restDays, muscleBreakdown, subMuscleDetail, fixes };
 }
 
 function poolFor(program, dayType) {
@@ -1204,8 +1250,15 @@ function getSupplementSuggestions(goal) {
   return [...(byGoal[goal] || byGoal["Recomposition"]), ...common];
 }
 
-const APP_VERSION = "2026.08.06l";
+const APP_VERSION = "2026.08.06m";
 const PATCH_NOTES = [
+  {
+    version: "2026.08.06m",
+    date: "6 août 2026",
+    items: [
+      "L'analyse de programme propose maintenant des corrections en un clic : \"Appliquer\" ajoute directement l'exercice suggéré à la bonne séance, ou supprime un doublon détecté.",
+    ],
+  },
   {
     version: "2026.08.06l",
     date: "6 août 2026",
@@ -4388,6 +4441,7 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
   const [aiError, setAiError] = useState("");
   const [showAiSection, setShowAiSection] = useState(false);
   const [localAnalysis, setLocalAnalysis] = useState(null);
+  const [appliedFixIds, setAppliedFixIds] = useState(new Set());
 
   const loadProgramData = (data) => {
     setName(data.name || name); setLevel(data.level || level); setWeeks(data.weeks || weeks);
@@ -4416,6 +4470,12 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
     cycle: days.map(d => (d.rest || d.exercises.length === 0) ? "repos" : "custom"),
     customSessions: days, custom: true,
   });
+
+  const applyFix = (fix) => {
+    if (fix.type === "add") addExercise(fix.dayIndex, fix.exercise);
+    else if (fix.type === "removeDuplicate") removeExercise(fix.dayIndex, fix.exerciseIndex);
+    setAppliedFixIds(s => new Set([...s, fix.id]));
+  };
 
   const runAiAnalysis = async () => {
     setAiError(""); setAiResult(""); setAiAnalyzing(true);
@@ -4525,7 +4585,7 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
             <Sparkles size={15} color={c.electric2} />
             <span style={{ fontSize: 13, fontWeight: 700 }}>Analyse du programme (gratuite)</span>
           </div>
-          <PrimaryBtn c={c} full icon={Sparkles} disabled={totalSessions === 0} onClick={() => setLocalAnalysis(analyzeProgramLocally(buildProgramData(), client))} style={{ marginBottom: localAnalysis ? 12 : 0 }}>
+          <PrimaryBtn c={c} full icon={Sparkles} disabled={totalSessions === 0} onClick={() => { setLocalAnalysis(analyzeProgramLocally(buildProgramData(), client)); setAppliedFixIds(new Set()); }} style={{ marginBottom: localAnalysis ? 12 : 0 }}>
             Analyser ce programme
           </PrimaryBtn>
 
@@ -4540,6 +4600,21 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
                 </div>
                 <div style={{ fontSize: 12, color: c.muted }}>Note globale sur 10<br /><span style={{ fontSize: 11 }}>{localAnalysis.daysTrained} jour{localAnalysis.daysTrained > 1 ? "s" : ""} d'entraînement · {localAnalysis.restDays} de repos</span></div>
               </div>
+
+              {localAnalysis.fixes.filter(f => !appliedFixIds.has(f.id)).length > 0 && (
+                <>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: c.warning, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Suggestions d'optimisation</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                    {localAnalysis.fixes.filter(f => !appliedFixIds.has(f.id)).map(fix => (
+                      <div key={fix.id} style={{ display: "flex", alignItems: "center", gap: 10, background: c.surface, borderRadius: 10, padding: 10 }}>
+                        <span style={{ flex: 1, fontSize: 11.5, lineHeight: 1.4 }}>{fix.label}</span>
+                        <SecondaryBtn c={c} icon={Check} onClick={() => applyFix(fix)} style={{ padding: "6px 12px", fontSize: 11 }}>Appliquer</SecondaryBtn>
+                      </div>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: 10.5, color: c.muted, margin: "-6px 0 14px", lineHeight: 1.4 }}>Après application, relance l'analyse pour vérifier l'effet sur la note.</p>
+                </>
+              )}
 
               <div style={{ fontSize: 11, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Muscles travaillés (séries/semaine)</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>

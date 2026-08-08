@@ -486,3 +486,17 @@ Aucun changement SQL. Toujours gratuit, toujours instantané.
 **Fatigue cumulée** : détecte quand plusieurs mouvements lourds sollicitant la même chaîne (ex : squat + soulevé de terre) sont programmés le même jour, avec un risque de compromettre la technique sur le second mouvement par fatigue accumulée.
 
 ⚠️ **Sur les asymétries gauche/droite** — honnêteté : une vraie détection basée sur les charges réellement soulevées de chaque côté nécessiterait de logger séparément quel côté a été fait à chaque série (l'app ne le fait pas actuellement, `exercise_logs` ne distingue pas gauche/droite). Ce qui est fait aujourd'hui, c'est vérifier la *présence* de travail unilatéral dans le programme (pas la comparaison de charge réelle entre les deux côtés). Si tu veux la vraie version (à partir des données loggées), c'est faisable mais ça demande d'ajouter un champ "côté" au moment de logger une série — dis-moi si tu veux qu'on le fasse.
+
+## Corrections en un clic ("Appliquer")
+
+Aucun changement SQL. Toujours gratuit, toujours instantané.
+
+L'analyse ne se contente plus de dire ce qui ne va pas — elle propose une **section "Suggestions d'optimisation"** avec un bouton "Appliquer" par problème détectable automatiquement :
+
+- **Muscle non travaillé ou volume insuffisant** → propose un exercice concret de la bibliothèque (adapté au lieu du programme — salle/maison), ajouté directement au jour le plus pertinent (en priorité un jour qui travaille déjà une catégorie liée).
+- **Angle musculaire manquant** (ex : brachial jamais ciblé) → propose l'exercice précis qui comble ce trou (ex : curl marteau).
+- **Doublon détecté** → bouton pour supprimer directement l'exercice en trop.
+
+Après avoir appliqué une ou plusieurs corrections, il suffit de relancer l'analyse pour voir la note et les points restants mis à jour — le programme se construit sous tes yeux, pas juste une liste de recommandations à appliquer soi-même à la main.
+
+**Ce qui reste volontairement non auto-appliqué** (trop subjectif ou destructeur pour un clic automatique) : volume excessif (nécessiterait de retirer des séries), déséquilibre poussée/tirage, fatigue cumulée, absence de jour de repos — ces points restent informatifs, à ajuster toi-même selon le contexte du client.
