@@ -521,3 +521,15 @@ La plus évidente : le panneau d'analyse de programme (ajouté récemment) étai
 - **Des cartes de couleur** pour points forts (vert)/faibles (orange)/recommandations (bleu) au lieu de simples listes à puces.
 
 Si tu identifies d'autres zones précises qui te semblent "à part" du reste de l'app, dis-le-moi avec le nom de l'écran — je peux faire la même chose ailleurs, mais je préfère cibler du concret plutôt que deviner à l'aveugle sur l'ensemble de l'app.
+
+## Redesign "les séances d'abord"
+
+Aucun changement SQL.
+
+Trouvé le vrai problème dans le code : dans le détail d'un programme, chaque séance était une ligne compacte de 30px, cachée dans des "Semaines" repliées qu'il fallait déplier une par une — exactement le "tout petit truc" décrit.
+
+**Ce qui a changé :**
+- **Vos séances** sont maintenant la toute première section visible en ouvrant un programme (avant les objectifs, avant le cycle hebdomadaire) — de grandes cartes de 48px d'icône, titre en gros, bordure colorée, faciles à taper.
+- **La carte "Votre séance"** du tableau de bord (déjà l'action principale de l'app) est devenue un vrai point focal : fond en dégradé plein écran, gros bouton blanc contrasté "Lancer ma séance", typographie bien plus grande — impossible de la manquer en ouvrant l'app.
+
+Le reste du contenu (objectifs, description, cycle hebdomadaire type, export PDF) est toujours là, juste repoussé en dessous — l'action "choisir et lancer ma séance" prime clairement sur tout le reste maintenant.

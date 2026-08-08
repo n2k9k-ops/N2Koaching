@@ -1250,8 +1250,16 @@ function getSupplementSuggestions(goal) {
   return [...(byGoal[goal] || byGoal["Recomposition"]), ...common];
 }
 
-const APP_VERSION = "2026.08.06o";
+const APP_VERSION = "2026.08.06p";
 const PATCH_NOTES = [
+  {
+    version: "2026.08.06p",
+    date: "6 août 2026",
+    items: [
+      "Refonte \"séances d'abord\" : les séances d'un programme sont maintenant de grandes cartes remontées en haut de l'écran, plus une petite ligne noyée dans des semaines repliées.",
+      "La carte \"Votre séance\" du tableau de bord est devenue le vrai point focal de l'écran d'accueil (dégradé plein, gros bouton blanc).",
+    ],
+  },
   {
     version: "2026.08.06o",
     date: "6 août 2026",
@@ -2584,34 +2592,47 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completed
       </Card>
 
       {assigned && today && (
-        <Card c={c} style={{ marginBottom: 14, border: `1.5px solid ${c.electric}`, padding: 18 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
-            <CalendarIcon size={13} color={c.electric2} />
-            <span style={{ fontSize: 11, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4 }}>Votre séance</span>
+        <div style={{
+          marginBottom: 16, borderRadius: 26, padding: 24, position: "relative", overflow: "hidden",
+          background: today.session.rest ? c.surface : c.gradA, border: today.session.rest ? `1.5px solid ${c.border}` : "none"
+        }}>
+          {!today.session.rest && <div style={{ position: "absolute", top: -50, right: -50, width: 180, height: 180, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 16, position: "relative" }}>
+            <CalendarIcon size={13} color={today.session.rest ? c.electric2 : "#fff"} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: today.session.rest ? c.electric2 : "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: 0.6 }}>Votre séance</span>
           </div>
           {today.session.rest ? (
             <>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
-                <div style={{ width: 48, height: 48, borderRadius: 14, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <Coffee size={22} color={c.muted} />
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 4 }}>
+                <div style={{ width: 56, height: 56, borderRadius: 18, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Coffee size={26} color={c.muted} />
                 </div>
-                <div className="ff-display" style={{ fontWeight: 700, fontSize: 16 }}>Jour de repos</div>
+                <div className="ff-display" style={{ fontWeight: 700, fontSize: 19 }}>Jour de repos</div>
               </div>
-              <p style={{ fontSize: 12.5, color: c.muted, margin: "8px 0 0 60px" }}>Profitez-en pour récupérer — votre prochaine séance vous attend demain.</p>
+              <p style={{ fontSize: 13, color: c.muted, margin: "10px 0 0 70px" }}>Profitez-en pour récupérer — votre prochaine séance vous attend demain.</p>
             </>
           ) : (
-            <>
-              <div className="ff-display" style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>{today.session.dayType === "custom" ? today.session.title.split(" — ")[1] : FOCUS_LABEL[today.session.dayType]}</div>
-              <div style={{ fontSize: 12.5, color: c.muted, marginBottom: 16 }}>~{today.session.estTotal} min (estimé) · {today.session.main.length} exercices</div>
-              <PrimaryBtn c={c} full icon={Play} onClick={() => openSession(today.program, today.week, today.dayIdx)} style={{ padding: "15px 20px", fontSize: 14.5 }}>
-                Lancer ma séance
-              </PrimaryBtn>
-            </>
+            <div style={{ position: "relative" }}>
+              <div className="ff-display" style={{ fontWeight: 700, fontSize: 26, lineHeight: 1.15, color: "#fff", marginBottom: 8 }}>
+                {today.session.dayType === "custom" ? today.session.title.split(" — ")[1] : FOCUS_LABEL[today.session.dayType]}
+              </div>
+              <div style={{ fontSize: 13.5, color: "rgba(255,255,255,0.85)", marginBottom: 22, fontWeight: 600 }}>~{today.session.estTotal} min (estimé) · {today.session.main.length} exercices</div>
+              <button onClick={() => openSession(today.program, today.week, today.dayIdx)} style={{
+                width: "100%", background: "#fff", color: c.electric, border: "none", borderRadius: 18, padding: "18px 22px",
+                fontSize: 16, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                boxShadow: "0 8px 24px rgba(0,0,0,0.2)"
+              }}>
+                <Play size={19} fill={c.electric} /> Lancer ma séance
+              </button>
+            </div>
           )}
-          <button onClick={() => openProgram(assigned)} style={{ background: "none", border: "none", color: c.muted, fontSize: 11.5, cursor: "pointer", marginTop: 12, display: "block", margin: "12px auto 0" }}>
+          <button onClick={() => openProgram(assigned)} style={{
+            background: "none", border: "none", cursor: "pointer", marginTop: 14, display: "block", margin: "14px auto 0",
+            color: today.session.rest ? c.muted : "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: 600
+          }}>
             Voir mon programme complet
           </button>
-        </Card>
+        </div>
       )}
       {assigned && !today && (
         <Card c={c} onClick={() => openProgram(assigned)} style={{ marginBottom: 14, display: "flex", gap: 14, alignItems: "center", border: `1.5px solid ${c.electric}` }}>
@@ -2754,7 +2775,7 @@ const ProgramDetail = ({ c, program, onBack, openSession, completedSessions, ope
 
   return (
     <div style={{ padding: "18px 18px 30px" }} className="anim-fadeIn">
-      <div style={{ background: c.gradB, borderRadius: 20, padding: 20, marginBottom: 16 }}>
+      <div style={{ background: c.gradB, borderRadius: 20, padding: 20, marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <Icon size={26} color="#fff" />
           <div style={{ display: "flex", gap: 6 }}>
@@ -2765,12 +2786,71 @@ const ProgramDetail = ({ c, program, onBack, openSession, completedSessions, ope
           </div>
         </div>
         <div className="ff-display" style={{ color: "#fff", fontWeight: 700, fontSize: 19, marginBottom: 8 }}>{program.name}</div>
-        <p style={{ color: "rgba(255,255,255,0.8)", fontSize: 13, lineHeight: 1.6, margin: "0 0 12px" }}>{program.desc}</p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <span style={{ background: "rgba(255,255,255,0.18)", color: "#fff", fontSize: 11.5, fontWeight: 700, padding: "5px 11px", borderRadius: 999 }}>{program.weeks} semaines</span>
           <span style={{ background: "rgba(255,255,255,0.18)", color: "#fff", fontSize: 11.5, fontWeight: 700, padding: "5px 11px", borderRadius: 999 }}>{perWeek}x / semaine</span>
           <span style={{ background: "rgba(255,255,255,0.18)", color: "#fff", fontSize: 11.5, fontWeight: 700, padding: "5px 11px", borderRadius: 999 }}>{program.level}</span>
         </div>
+      </div>
+
+      <SectionTitle c={c}>Vos séances</SectionTitle>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 24 }}>
+        {[...Array(program.weeks)].map((_, wi) => {
+          const w = wi + 1;
+          const open = expandedWeeks.includes(w);
+          return (
+            <div key={w}>
+              <div onClick={() => toggleWeek(w)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: open ? 10 : 0, padding: "4px 2px" }}>
+                <span className="ff-display" style={{ fontWeight: 700, fontSize: 15 }}>Semaine {w}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11.5, color: c.muted, fontWeight: 600 }}>{perWeek} séances</span>
+                  <ChevronDown size={18} color={c.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+                </div>
+              </div>
+              {open && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {program.cycle.map((dayType, di) => {
+                    const sess = buildDaySession(program, w, di);
+                    if (sess.rest) {
+                      return (
+                        <Card key={di} c={c} style={{ display: "flex", alignItems: "center", gap: 14, padding: 16, opacity: 0.7 }}>
+                          <div style={{ width: 48, height: 48, borderRadius: 15, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            <Coffee size={22} color={c.muted} />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div className="ff-display" style={{ fontSize: 15, fontWeight: 700, color: c.muted }}>{sess.dayLabel} — Repos</div>
+                            <div style={{ fontSize: 12, color: c.muted }}>Récupération active conseillée</div>
+                          </div>
+                        </Card>
+                      );
+                    }
+                    const dayKey = `${program.id || program.name}-${w}-${di}`;
+                    const isDone = !!completedSessions[dayKey];
+                    return (
+                      <Card key={di} onClick={() => isDone ? openReview(program, w, di, dayKey) : openSession(program, w, di)}
+                        style={{ display: "flex", alignItems: "center", gap: 14, padding: 16, border: isDone ? `1.5px solid ${c.success}` : `1.5px solid ${c.electric}` }}>
+                        <div style={{
+                          width: 48, height: 48, borderRadius: 15, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                          background: isDone ? c.success : c.gradA
+                        }}>
+                          {isDone ? <Check size={22} color="#fff" /> : <Play size={20} color="#fff" />}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 10.5, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 2 }}>{sess.dayLabel}</div>
+                          <div className="ff-display" style={{ fontSize: 15.5, fontWeight: 700, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {sess.dayType === "custom" ? sess.title.split(" — ")[1] : FOCUS_LABEL[sess.dayType]}
+                          </div>
+                          <div style={{ fontSize: 12, color: c.muted }}>{isDone ? "Terminée · voir mes performances" : `~${sess.estTotal} min (estimé) · ${sess.main.length + 4} exercices`}</div>
+                        </div>
+                        <ChevronRight size={20} color={c.muted} style={{ flexShrink: 0 }} />
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <SecondaryBtn c={c} full icon={Download} onClick={() => exportProgramToPDF(program)} style={{ marginBottom: 20 }}>
@@ -2789,8 +2869,10 @@ const ProgramDetail = ({ c, program, onBack, openSession, completedSessions, ope
         ))}
       </div>
 
+      <p style={{ fontSize: 12.5, color: c.muted, lineHeight: 1.6, marginBottom: 20 }}>{program.desc}</p>
+
       <SectionTitle c={c}>Cycle hebdomadaire type</SectionTitle>
-      <div style={{ display: "flex", gap: 6, marginBottom: 20, overflowX: "auto" }} className="scrollbar-none">
+      <div style={{ display: "flex", gap: 6, marginBottom: 8, overflowX: "auto" }} className="scrollbar-none">
         {program.cycle.map((d, i) => (
           <div key={i} style={{
             minWidth: 62, textAlign: "center", padding: "10px 4px", borderRadius: 12, flexShrink: 0,
@@ -2800,59 +2882,6 @@ const ProgramDetail = ({ c, program, onBack, openSession, completedSessions, ope
             {d === "repos" ? <Coffee size={14} color={c.muted} style={{ margin: "0 auto" }} /> : <div style={{ fontSize: 10, fontWeight: 700, color: c.electric2 }}>{FOCUS_LABEL[d].split(" ")[0].split("·")[0]}</div>}
           </div>
         ))}
-      </div>
-
-      <SectionTitle c={c}>Programme complet</SectionTitle>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {[...Array(program.weeks)].map((_, wi) => {
-          const w = wi + 1;
-          const open = expandedWeeks.includes(w);
-          return (
-            <Card c={c} key={w} style={{ padding: 0, overflow: "hidden" }}>
-              <div onClick={() => toggleWeek(w)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: 14, cursor: "pointer" }}>
-                <span className="ff-display" style={{ fontWeight: 700, fontSize: 13.5 }}>Semaine {w}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Pill c={c}>{perWeek} séances</Pill>
-                  <ChevronDown size={16} color={c.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
-                </div>
-              </div>
-              {open && (
-                <div style={{ borderTop: `1px solid ${c.border}` }}>
-                  {program.cycle.map((dayType, di) => {
-                    const sess = buildDaySession(program, w, di);
-                    if (sess.rest) {
-                      return (
-                        <div key={di} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderTop: di === 0 ? "none" : `1px solid ${c.border}` }}>
-                          <div style={{ width: 30, height: 30, borderRadius: 9, background: c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                            <Coffee size={13} color={c.muted} />
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 12.5, fontWeight: 600, color: c.muted }}>{sess.dayLabel} — Jour de repos</div>
-                            <div style={{ fontSize: 11, color: c.muted }}>Récupération active conseillée</div>
-                          </div>
-                        </div>
-                      );
-                    }
-                    const dayKey = `${program.id || program.name}-${w}-${di}`;
-                    const isDone = !!completedSessions[dayKey];
-                    return (
-                      <div key={di} onClick={() => isDone ? openReview(program, w, di, dayKey) : openSession(program, w, di)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderTop: di === 0 ? "none" : `1px solid ${c.border}`, cursor: "pointer" }}>
-                        <div style={{ width: 30, height: 30, borderRadius: 9, background: isDone ? c.success : c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                          {isDone ? <Check size={14} color="#fff" /> : <Play size={12} color={c.electric2} />}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12.5, fontWeight: 600 }}>{sess.dayLabel} — {sess.dayType === "custom" ? sess.title.split(" — ")[1] : FOCUS_LABEL[sess.dayType]}</div>
-                          <div style={{ fontSize: 11, color: c.muted }}>{isDone ? "Terminée · voir mes performances" : `~${sess.estTotal} min (estimé) · ${sess.main.length + 4} exercices`}</div>
-                        </div>
-                        <ChevronRight size={15} color={c.muted} />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
-          );
-        })}
       </div>
     </div>
   );
