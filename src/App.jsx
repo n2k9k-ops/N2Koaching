@@ -17,7 +17,7 @@ import {
   listAllProfiles, setProfileStatus, assignLibraryProgram, assignCustomProgram, revokeAccess, restoreAccess,
   listTemplates, saveTemplate, deleteTemplate,
   listMessages, sendMessage, markMessagesRead, uploadMessageAttachment,
-  logWeight, listWeightLogs, uploadExercisePhoto, updateStreakFreezeUsedAt,
+  logWeight, listWeightLogs, uploadExercisePhoto, updateStreakFreezeUsedAt, resetMyProgress,
   uploadProgressPhoto, createProgressPhoto, listProgressPhotos, replyToProgressPhoto,
   approveWithDuration, renewAccess, submitSessionFeedback, listSessionFeedback, broadcastMessage,
   logExerciseSet, getLastExercisePerformance, getSessionExerciseLogs, listLoggedExerciseNames, getExerciseHistory,
@@ -1250,8 +1250,15 @@ function getSupplementSuggestions(goal) {
   return [...(byGoal[goal] || byGoal["Recomposition"]), ...common];
 }
 
-const APP_VERSION = "2026.08.06p";
+const APP_VERSION = "2026.08.06q";
 const PATCH_NOTES = [
+  {
+    version: "2026.08.06q",
+    date: "6 août 2026",
+    items: [
+      "Nouveau bouton \"Réinitialiser ma progression\" dans le Profil (Zone de danger) — efface séances, série, XP, historique, et repart au jour 1 de son programme actuel.",
+    ],
+  },
   {
     version: "2026.08.06p",
     date: "6 août 2026",
@@ -4050,7 +4057,7 @@ const SubscriptionSection = ({ c, status }) => {
 };
 
 
-const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLogged, onAvatarChanged, completedSessions }) => {
+const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLogged, onAvatarChanged, completedSessions, onProgressReset }) => {
   const { name, weight, height, goal, level, xp, sportLevel, avatarUrl, sessionsCompleted, totalMinutes, calories } = state;
   const [logs, setLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(true);
@@ -4058,6 +4065,9 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
   const [logVal, setLogVal] = useState(weight);
   const [logging, setLogging] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState("");
   const avatarInputRef = useRef(null);
   const profileDaysUntilExpiry = state.accessExpiresAt ? Math.ceil((new Date(state.accessExpiresAt) - new Date()) / 86400000) : null;
   const profileExpirySoon = profileDaysUntilExpiry !== null && profileDaysUntilExpiry >= 0 && profileDaysUntilExpiry <= 7;
@@ -4276,7 +4286,7 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
       {SUBSCRIPTION_ENABLED && <SubscriptionSection c={c} status={state.subscriptionStatus} />}
 
       <SectionTitle c={c}>Préférences</SectionTitle>
-      <Card c={c} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <Card c={c} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {dark ? <Moon size={17} color={c.electric2} /> : <Sun size={17} color={c.warning} />}
           <span style={{ fontSize: 13, fontWeight: 600 }}>Mode sombre</span>
@@ -4284,6 +4294,32 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
         <div onClick={() => setDark(!dark)} style={{ width: 44, height: 26, borderRadius: 999, background: dark ? c.gradA : c.surface2, position: "relative", cursor: "pointer", border: `1px solid ${c.border}` }}>
           <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: dark ? 21 : 2, transition: "left .2s" }} />
         </div>
+      </Card>
+
+      <SectionTitle c={c}>Zone de danger</SectionTitle>
+      <Card c={c} style={{ borderColor: c.danger }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Réinitialiser ma progression</div>
+        <p style={{ fontSize: 12, color: c.muted, lineHeight: 1.5, margin: "0 0 12px" }}>
+          Efface toutes vos séances loggées, votre série, votre XP, votre historique de poids et de charges — et repart au jour 1 de votre programme actuel. Votre programme assigné et vos informations de profil restent inchangés. Cette action est irréversible.
+        </p>
+        {showResetConfirm ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {resetError && <div style={{ fontSize: 12, color: c.danger }}>{resetError}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <SecondaryBtn c={c} full onClick={() => setShowResetConfirm(false)} disabled={resetting}>Annuler</SecondaryBtn>
+              <PrimaryBtn c={c} full icon={RotateCcw} style={{ background: c.danger }} disabled={resetting} onClick={async () => {
+                setResetting(true); setResetError("");
+                try { await resetMyProgress(); await onProgressReset(); setShowResetConfirm(false); }
+                catch (e) { setResetError(e && e.message ? e.message : "Réinitialisation impossible."); }
+                setResetting(false);
+              }}>{resetting ? "Réinitialisation..." : "Confirmer la réinitialisation"}</PrimaryBtn>
+            </div>
+          </div>
+        ) : (
+          <SecondaryBtn c={c} full icon={RotateCcw} onClick={() => setShowResetConfirm(true)} style={{ color: c.danger }}>
+            Réinitialiser ma progression
+          </SecondaryBtn>
+        )}
       </Card>
     </div>
   );
@@ -6177,7 +6213,8 @@ export default function App() {
   } else if (tab === "nutrition") {
     content = <Nutrition c={c} profile={state} water={water} setWater={setWater} />;
   } else if (tab === "profile") {
-    content = <Profile c={c} state={state} dark={dark} setDark={setDark} accountEmail={accountEmail} profileId={profileId} completedSessions={completedSessions} onWeightLogged={(w) => setState(s => ({ ...s, weight: w }))} onAvatarChanged={(url) => setState(s => ({ ...s, avatarUrl: url }))} />;
+    content = <Profile c={c} state={state} dark={dark} setDark={setDark} accountEmail={accountEmail} profileId={profileId} completedSessions={completedSessions} onWeightLogged={(w) => setState(s => ({ ...s, weight: w }))} onAvatarChanged={(url) => setState(s => ({ ...s, avatarUrl: url }))}
+      onProgressReset={async () => { const profile = await getSessionProfile(); if (profile) applyProfile(profile); }} />;
   }
 
   return (

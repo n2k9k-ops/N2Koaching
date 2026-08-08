@@ -379,6 +379,15 @@ export async function broadcastMessage(clientIds, content) {
 
 /* ---------------- Historique de poids ---------------- */
 
+/** Réinitialise entièrement la progression de l'utilisateur connecté :
+ *  séances loggées, streak, XP, historique de poids/charges/photos/ressenti,
+ *  et repart au jour 1 du programme assigné. Ne touche jamais le programme
+ *  assigné lui-même, ni le statut du compte. */
+export async function resetMyProgress() {
+  const { error } = await supabase.rpc("reset_my_progress");
+  if (error) throw error;
+}
+
 export async function logWeight(profileId, weight) {
   const { error } = await supabase.from("weight_logs").insert({ profile_id: profileId, weight });
   if (error) throw error;

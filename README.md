@@ -533,3 +533,15 @@ Trouvé le vrai problème dans le code : dans le détail d'un programme, chaque 
 - **La carte "Votre séance"** du tableau de bord (déjà l'action principale de l'app) est devenue un vrai point focal : fond en dégradé plein écran, gros bouton blanc contrasté "Lancer ma séance", typographie bien plus grande — impossible de la manquer en ouvrant l'app.
 
 Le reste du contenu (objectifs, description, cycle hebdomadaire type, export PDF) est toujours là, juste repoussé en dessous — l'action "choisir et lancer ma séance" prime clairement sur tout le reste maintenant.
+
+## Réinitialiser sa progression (repartir semaine 1)
+
+⚠️ Relance `supabase/schema.sql` en entier (ajoute la fonction serveur `reset_my_progress`).
+
+Dans Profil → tout en bas → **"Zone de danger"** → "Réinitialiser ma progression" (confirmation à deux étapes, action irréversible).
+
+**Ce que ça efface** : toutes les séances loggées, la série (streak), l'XP, le niveau, les calories/temps cumulés, l'historique de poids, l'historique des charges par exercice, les photos de progression, et les réponses de ressenti post-séance. La date de démarrage du programme est remise à maintenant, donc "Votre séance" recalcule directement depuis le Jour 1 / Semaine 1.
+
+**Ce qui NE change pas** : le programme assigné lui-même reste le même (pas besoin que le coach le réassigne), ainsi que les infos de profil (poids actuel, taille, objectif, etc.) et le statut du compte.
+
+**Détail technique pour toi** : ce n'est pas un simple update depuis le client — plusieurs de ces champs (comme la date de démarrage du programme) sont protégés contre la modification directe par un client pour éviter les abus. J'ai donc créé une vraie fonction côté serveur (`reset_my_progress`), verrouillée pour ne jamais pouvoir toucher qu'au propre compte de la personne qui l'appelle — impossible de l'utiliser pour réinitialiser le compte de quelqu'un d'autre.

@@ -401,6 +401,35 @@ create policy "session_feedback_insert" on public.session_feedback
   for insert with check (profile_id = auth.uid());
 
 -- ============================================================
+-- RÉINITIALISATION DE SA PROPRE PROGRESSION (self-service, sécurisé)
+-- SECURITY DEFINER mais strictement scopé à auth.uid() — ne touche jamais
+-- le programme assigné, le statut, ou tout autre profil que le sien.
+-- ============================================================
+create or replace function public.reset_my_progress()
+returns void
+language plpgsql security definer
+as $$
+begin
+  update public.profiles set
+    completed_sessions = '{}'::jsonb,
+    program_start_at = now(),
+    sessions_completed = 0,
+    total_minutes = 0,
+    calories = 0,
+    xp = 0,
+    streak_freeze_used_at = null
+  where id = auth.uid();
+
+  delete from public.exercise_logs where profile_id = auth.uid();
+  delete from public.weight_logs where profile_id = auth.uid();
+  delete from public.progress_photos where profile_id = auth.uid();
+  delete from public.session_feedback where profile_id = auth.uid();
+end;
+$$;
+
+grant execute on function public.reset_my_progress() to authenticated;
+
+-- ============================================================
 -- ÉTAPE MANUELLE : créer votre premier compte coach
 -- 1. Inscrivez-vous normalement depuis l'app avec l'email du coach.
 -- 2. Puis exécutez (en remplaçant l'email) :
