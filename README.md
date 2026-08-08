@@ -545,3 +545,13 @@ Dans Profil → tout en bas → **"Zone de danger"** → "Réinitialiser ma prog
 **Ce qui NE change pas** : le programme assigné lui-même reste le même (pas besoin que le coach le réassigne), ainsi que les infos de profil (poids actuel, taille, objectif, etc.) et le statut du compte.
 
 **Détail technique pour toi** : ce n'est pas un simple update depuis le client — plusieurs de ces champs (comme la date de démarrage du programme) sont protégés contre la modification directe par un client pour éviter les abus. J'ai donc créé une vraie fonction côté serveur (`reset_my_progress`), verrouillée pour ne jamais pouvoir toucher qu'au propre compte de la personne qui l'appelle — impossible de l'utiliser pour réinitialiser le compte de quelqu'un d'autre.
+
+## Fix écran blanc en consultant une séance
+
+Aucun changement SQL.
+
+**Trouvé le vrai bug** en relisant tout le code du parcours "voir sa séance" : la vue "Vos performances" (celle qui s'affiche quand tu cliques sur une séance déjà marquée terminée) n'était pas protégée si la liste des exercices de cette séance n'était pas correctement chargée — ça plantait le rendu React entier, d'où l'écran blanc.
+
+**Corrigé, plus des garde-fous ajoutés en prévention** sur tout le parcours (détail de séance, mode focus plein écran) pour qu'une donnée manquante ou inattendue affiche un message clair ("Aucun exercice...") plutôt que de faire planter toute l'app.
+
+Si ça bug encore après cette mise à jour, dis-moi précisément sur quel écran et à quel moment (idéalement avec la console développeur ouverte si possible) — je creuserai plus loin.

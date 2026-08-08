@@ -1250,8 +1250,23 @@ function getSupplementSuggestions(goal) {
   return [...(byGoal[goal] || byGoal["Recomposition"]), ...common];
 }
 
-const APP_VERSION = "2026.08.06q";
+const APP_VERSION = "2026.08.06s";
 const PATCH_NOTES = [
+  {
+    version: "2026.08.06s",
+    date: "6 août 2026",
+    items: [
+      "Fix écran blanc : ouvrir la vue \"performances\" d'une séance terminée pouvait planter si les exercices de cette séance n'étaient pas chargés correctement.",
+      "Garde-fous ajoutés sur l'écran de séance et le mode focus pour empêcher tout autre écran blanc du même type.",
+    ],
+  },
+  {
+    version: "2026.08.06r",
+    date: "6 août 2026",
+    items: [
+      "Fix : les cercles décoratifs de la carte \"Votre séance\" et \"Points de la semaine\" bloquaient silencieusement les clics sur les boutons en dessous.",
+    ],
+  },
   {
     version: "2026.08.06q",
     date: "6 août 2026",
@@ -2603,7 +2618,7 @@ const Dashboard = ({ c, state, quote, openProgram, openSession, goTab, completed
           marginBottom: 16, borderRadius: 26, padding: 24, position: "relative", overflow: "hidden",
           background: today.session.rest ? c.surface : c.gradA, border: today.session.rest ? `1.5px solid ${c.border}` : "none"
         }}>
-          {!today.session.rest && <div style={{ position: "absolute", top: -50, right: -50, width: 180, height: 180, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />}
+          {!today.session.rest && <div style={{ position: "absolute", top: -50, right: -50, width: 180, height: 180, borderRadius: "50%", background: "rgba(255,255,255,0.1)", pointerEvents: "none" }} />}
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 16, position: "relative" }}>
             <CalendarIcon size={13} color={today.session.rest ? c.electric2 : "#fff"} />
             <span style={{ fontSize: 11, fontWeight: 700, color: today.session.rest ? c.electric2 : "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: 0.6 }}>Votre séance</span>
@@ -2777,7 +2792,8 @@ const ProgramsList = ({ c, openProgram, state }) => {
 const ProgramDetail = ({ c, program, onBack, openSession, completedSessions, openReview }) => {
   const [expandedWeeks, setExpandedWeeks] = useState([1]);
   const toggleWeek = (w) => setExpandedWeeks(exp => exp.includes(w) ? exp.filter(x => x !== w) : [...exp, w]);
-  const perWeek = program.cycle.filter(d => d !== "repos").length;
+  const cycle = program.cycle || [];
+  const perWeek = cycle.filter(d => d !== "repos").length;
   const Icon = program.icon || Sparkles;
 
   return (
@@ -2816,7 +2832,7 @@ const ProgramDetail = ({ c, program, onBack, openSession, completedSessions, ope
               </div>
               {open && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {program.cycle.map((dayType, di) => {
+                  {cycle.map((dayType, di) => {
                     const sess = buildDaySession(program, w, di);
                     if (sess.rest) {
                       return (
@@ -2880,7 +2896,7 @@ const ProgramDetail = ({ c, program, onBack, openSession, completedSessions, ope
 
       <SectionTitle c={c}>Cycle hebdomadaire type</SectionTitle>
       <div style={{ display: "flex", gap: 6, marginBottom: 8, overflowX: "auto" }} className="scrollbar-none">
-        {program.cycle.map((d, i) => (
+        {cycle.map((d, i) => (
           <div key={i} style={{
             minWidth: 62, textAlign: "center", padding: "10px 4px", borderRadius: 12, flexShrink: 0,
             background: d === "repos" ? c.surface2 : "rgba(47,107,255,0.15)", border: `1px solid ${c.border}`
@@ -3176,9 +3192,11 @@ const SessionPerformanceView = ({ c, session, profileId, sessionKey }) => {
       <SectionTitle c={c}>Vos performances</SectionTitle>
       {loading ? (
         <div style={{ textAlign: "center", padding: 30, color: c.muted, fontSize: 12.5 }}>Chargement...</div>
+      ) : (session.main || []).length === 0 ? (
+        <div style={{ textAlign: "center", padding: 30, color: c.muted, fontSize: 12.5 }}>Aucun exercice enregistré pour cette séance.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {session.main.map((e, i) => {
+          {(session.main || []).map((e, i) => {
             const setsLogged = (logs && logs[e.name]) || [];
             return (
               <Card c={c} key={i} style={{ padding: 14 }}>
@@ -3332,15 +3350,15 @@ const RestDayScreen = ({ c }) => (
    obligatoire plein écran entre les séries.
 ============================================================ */
 const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, onContinue, onExitFocus, onSubstitute, profileId, sessionKey }) => {
-  const [sets, setSets] = useState(() => Array.from({ length: exercise.sets }, () => ({ weight: "", reps: "", done: false })));
+  const [sets, setSets] = useState(() => Array.from({ length: exercise.sets || 3 }, () => ({ weight: "", reps: "", done: false })));
   const [phase, setPhase] = useState("input"); // input | resting | done
   const [activeIdx, setActiveIdx] = useState(0);
   const [weight, setWeight] = useState("");
   const [reps, setReps] = useState("");
-  const [restRemaining, setRestRemaining] = useState(exercise.rest);
+  const [restRemaining, setRestRemaining] = useState(exercise.rest || 60);
   const [infoOpen, setInfoOpen] = useState(false);
   const [lastTime, setLastTime] = useState(null);
-  const timeBased = /sec|min/.test(exercise.reps);
+  const timeBased = /sec|min/.test(exercise.reps || "");
 
   useEffect(() => {
     if (!profileId) return;
@@ -3375,12 +3393,12 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
       logExerciseSet(profileId, sessionKey, exercise.name, activeIdx, Number(weight) || null, reps).catch(() => {});
     }
     setWeight(""); setReps("");
-    if (activeIdx === exercise.sets - 1) {
+    if (activeIdx === (exercise.sets || 3) - 1) {
       setPhase("done");
       onExerciseDone();
     } else {
       setActiveIdx(a => a + 1);
-      setRestRemaining(exercise.rest);
+      setRestRemaining(exercise.rest || 60);
       setPhase("resting");
     }
   };
@@ -3397,7 +3415,7 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
     setPhase("input");
   };
 
-  const restPct = ((exercise.rest - restRemaining) / exercise.rest) * 100;
+  const restPct = exercise.rest ? ((exercise.rest - restRemaining) / exercise.rest) * 100 : 100;
   const lastTimeForSet = lastTime && lastTime[activeIdx];
 
   return (
@@ -3520,10 +3538,16 @@ const FocusExercise = ({ c, exercise, index, total, nextName, onExerciseDone, on
 };
 
 const FocusRunner = ({ c, exercises: initialExercises, startIndex, onMarkDone, onClose, profileId, sessionKey, onAllDone }) => {
-  const [exercises, setExercises] = useState(initialExercises);
+  const [exercises, setExercises] = useState(initialExercises || []);
   const [reserve, setReserve] = useState([]);
-  const [idx, setIdx] = useState(startIndex);
+  const [idx, setIdx] = useState(Math.min(startIndex || 0, Math.max(0, (initialExercises || []).length - 1)));
   const exercise = exercises[idx];
+
+  useEffect(() => {
+    if (!exercise) onClose();
+  }, [exercise]);
+
+  if (!exercise) return null;
 
   const substitute = () => {
     const alt = findSubstitute(exercise, [...exercises, ...reserve]);
@@ -3560,12 +3584,15 @@ const SessionDetail = ({ c, session, onComplete, completed, profileId, sessionKe
   const [doneMap, setDoneMap] = useState({});
   const [focusOpen, setFocusOpen] = useState(false);
   const [focusStart, setFocusStart] = useState(0);
-  const [orderedMain, setOrderedMain] = useState(session.main);
+  const [orderedMain, setOrderedMain] = useState(session.main || []);
   const startedAtRef = useRef(null);
   if (session.rest) return <RestDayScreen c={c} />;
-  const totalExercises = session.warm.length + session.main.length + session.cool.length;
+  const warm = session.warm || [];
+  const cool = session.cool || [];
+  const main = session.main || [];
+  const totalExercises = warm.length + main.length + cool.length;
   const doneCount = Object.keys(doneMap).length;
-  const allLogged = doneCount >= session.main.length;
+  const allLogged = main.length > 0 && doneCount >= main.length;
   const markDone = (idx) => setDoneMap(m => ({ ...m, [idx]: true }));
   const moveExercise = (from, to) => setOrderedMain(list => {
     const next = [...list];
@@ -3590,17 +3617,17 @@ const SessionDetail = ({ c, session, onComplete, completed, profileId, sessionKe
         </div>
         <div style={{ marginTop: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "rgba(255,255,255,0.75)", marginBottom: 5 }}>
-            <span>Progression de la séance</span><span className="ff-mono">{doneCount}/{session.main.length}</span>
+            <span>Progression de la séance</span><span className="ff-mono">{doneCount}/{main.length}</span>
           </div>
           <div style={{ height: 6, background: "rgba(255,255,255,0.2)", borderRadius: 4, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${(doneCount / session.main.length) * 100}%`, background: "#fff", borderRadius: 4, transition: "width .4s ease" }} />
+            <div style={{ height: "100%", width: `${main.length > 0 ? (doneCount / main.length) * 100 : 0}%`, background: "#fff", borderRadius: 4, transition: "width .4s ease" }} />
           </div>
         </div>
       </div>
 
       <SectionTitle c={c}>Échauffement</SectionTitle>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
-        {session.warm.map((w, i) => (
+        {warm.map((w, i) => (
           <Card c={c} key={i} style={{ padding: 12, display: "flex", alignItems: "center", gap: 10 }}>
             <Timer size={15} color={c.electric2} />
             <div style={{ flex: 1 }}>
@@ -3612,49 +3639,55 @@ const SessionDetail = ({ c, session, onComplete, completed, profileId, sessionKe
         ))}
       </div>
 
-      <SectionTitle c={c} action={<Pill c={c} tone={allLogged ? "success" : "electric"}>{doneCount}/{session.main.length} loggés</Pill>}>
+      <SectionTitle c={c} action={<Pill c={c} tone={allLogged ? "success" : "electric"}>{doneCount}/{main.length} loggés</Pill>}>
         Exercices principaux
       </SectionTitle>
       <p style={{ fontSize: 11.5, color: c.muted, marginTop: -6, marginBottom: 12, lineHeight: 1.5 }}>
         Chaque exercice s'ouvre en plein écran, un à la fois, avec un temps de repos entre les séries (possibilité de le passer).
       </p>
-      <PrimaryBtn c={c} full icon={Play} style={{ marginBottom: 12 }} onClick={() => {
-        const firstIncomplete = orderedMain.findIndex((_, i) => !doneMap[i]);
-        setFocusStart(firstIncomplete === -1 ? 0 : firstIncomplete);
-        setFocusOpen(true);
-        if (!startedAtRef.current) startedAtRef.current = Date.now();
-      }}>
-        {doneCount === 0 ? "Démarrer les exercices" : doneCount < session.main.length ? `Reprendre (${doneCount}/${session.main.length})` : "Revoir les exercices"}
-      </PrimaryBtn>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
-        {orderedMain.map((e, i) => (
-          <Card key={e.name} c={c} onClick={() => { setFocusStart(i); setFocusOpen(true); if (!startedAtRef.current) startedAtRef.current = Date.now(); }} style={{ padding: 12, display: "flex", alignItems: "center", gap: 10 }}>
-            {doneCount === 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 1, flexShrink: 0 }} onClick={e2 => e2.stopPropagation()}>
-                <button onClick={() => i > 0 && moveExercise(i, i - 1)} disabled={i === 0} style={{ background: "none", border: "none", cursor: i === 0 ? "default" : "pointer", color: i === 0 ? c.border : c.muted, padding: 0, lineHeight: 0 }}><ChevronUp size={14} /></button>
-                <button onClick={() => i < orderedMain.length - 1 && moveExercise(i, i + 1)} disabled={i === orderedMain.length - 1} style={{ background: "none", border: "none", cursor: i === orderedMain.length - 1 ? "default" : "pointer", color: i === orderedMain.length - 1 ? c.border : c.muted, padding: 0, lineHeight: 0 }}><ChevronDown size={14} /></button>
-              </div>
-            )}
-            <div className="ff-mono" style={{
-              width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700,
-              background: doneMap[i] ? c.success : c.surface2, color: doneMap[i] ? "#fff" : c.text
-            }}>{doneMap[i] ? <Check size={13} /> : i + 1}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{e.name}</div>
-              <div style={{ fontSize: 11, color: c.muted }}>{e.sets} séries × {e.reps}</div>
-            </div>
-            <ChevronRight size={16} color={c.muted} />
-          </Card>
-        ))}
-      </div>
-      {focusOpen && (
-        <FocusRunner c={c} exercises={orderedMain} startIndex={focusStart}
-          onMarkDone={(i) => markDone(i)} onClose={() => setFocusOpen(false)} onAllDone={finishSession} profileId={profileId} sessionKey={sessionKey} />
+      {main.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 24, color: c.muted, fontSize: 12.5, marginBottom: 20 }}>Aucun exercice principal dans cette séance.</div>
+      ) : (
+        <>
+          <PrimaryBtn c={c} full icon={Play} style={{ marginBottom: 12 }} onClick={() => {
+            const firstIncomplete = orderedMain.findIndex((_, i) => !doneMap[i]);
+            setFocusStart(firstIncomplete === -1 ? 0 : firstIncomplete);
+            setFocusOpen(true);
+            if (!startedAtRef.current) startedAtRef.current = Date.now();
+          }}>
+            {doneCount === 0 ? "Démarrer les exercices" : doneCount < main.length ? `Reprendre (${doneCount}/${main.length})` : "Revoir les exercices"}
+          </PrimaryBtn>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+            {orderedMain.map((e, i) => (
+              <Card key={e.name} c={c} onClick={() => { setFocusStart(i); setFocusOpen(true); if (!startedAtRef.current) startedAtRef.current = Date.now(); }} style={{ padding: 12, display: "flex", alignItems: "center", gap: 10 }}>
+                {doneCount === 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1, flexShrink: 0 }} onClick={e2 => e2.stopPropagation()}>
+                    <button onClick={() => i > 0 && moveExercise(i, i - 1)} disabled={i === 0} style={{ background: "none", border: "none", cursor: i === 0 ? "default" : "pointer", color: i === 0 ? c.border : c.muted, padding: 0, lineHeight: 0 }}><ChevronUp size={14} /></button>
+                    <button onClick={() => i < orderedMain.length - 1 && moveExercise(i, i + 1)} disabled={i === orderedMain.length - 1} style={{ background: "none", border: "none", cursor: i === orderedMain.length - 1 ? "default" : "pointer", color: i === orderedMain.length - 1 ? c.border : c.muted, padding: 0, lineHeight: 0 }}><ChevronDown size={14} /></button>
+                  </div>
+                )}
+                <div className="ff-mono" style={{
+                  width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700,
+                  background: doneMap[i] ? c.success : c.surface2, color: doneMap[i] ? "#fff" : c.text
+                }}>{doneMap[i] ? <Check size={13} /> : i + 1}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{e.name}</div>
+                  <div style={{ fontSize: 11, color: c.muted }}>{e.sets} séries × {e.reps}</div>
+                </div>
+                <ChevronRight size={16} color={c.muted} />
+              </Card>
+            ))}
+          </div>
+          {focusOpen && orderedMain.length > 0 && (
+            <FocusRunner c={c} exercises={orderedMain} startIndex={Math.min(focusStart, orderedMain.length - 1)}
+              onMarkDone={(i) => markDone(i)} onClose={() => setFocusOpen(false)} onAllDone={finishSession} profileId={profileId} sessionKey={sessionKey} />
+          )}
+        </>
       )}
 
       <SectionTitle c={c}>Retour au calme</SectionTitle>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 26 }}>
-        {session.cool.map((w, i) => (
+        {cool.map((w, i) => (
           <Card c={c} key={i} style={{ padding: 12, display: "flex", alignItems: "center", gap: 10 }}>
             <Heart size={15} color={c.danger} />
             <div style={{ flex: 1 }}>
@@ -3669,7 +3702,7 @@ const SessionDetail = ({ c, session, onComplete, completed, profileId, sessionKe
       <div style={{ position: "fixed", bottom: 18, left: 0, right: 0, padding: "0 18px", zIndex: 25 }}>
         {!allLogged && !completed && (
           <div style={{ textAlign: "center", fontSize: 11.5, color: c.muted, marginBottom: 8, background: c.bg, display: "inline-block", width: "100%" }}>
-            Loggez les {session.main.length} exercices pour valider la séance
+            Loggez les {main.length} exercices pour valider la séance
           </div>
         )}
         <PrimaryBtn c={c} full icon={completed ? CheckCircle2 : Play} onClick={finishSession} disabled={!allLogged && !completed}
@@ -4160,7 +4193,7 @@ const Profile = ({ c, state, dark, setDark, accountEmail, profileId, onWeightLog
       </div>
 
       <Card c={c} style={{ marginBottom: 18, background: c.gradB, border: "none", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: -30, right: -30, width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
+        <div style={{ position: "absolute", top: -30, right: -30, width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.08)", pointerEvents: "none" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
           <Sparkles size={14} color="#fff" />
           <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: 0.5 }}>Points de la semaine</span>
