@@ -1250,8 +1250,22 @@ function getSupplementSuggestions(goal) {
   return [...(byGoal[goal] || byGoal["Recomposition"]), ...common];
 }
 
-const APP_VERSION = "2026.08.06m";
+const APP_VERSION = "2026.08.06o";
 const PATCH_NOTES = [
+  {
+    version: "2026.08.06o",
+    date: "6 août 2026",
+    items: [
+      "Refonte visuelle du panneau d'analyse de programme : anneau de score, onglets Résumé/Muscles/Suggestions au lieu d'un mur de texte, cartes colorées cohérentes avec le reste de l'app.",
+    ],
+  },
+  {
+    version: "2026.08.06n",
+    date: "6 août 2026",
+    items: [
+      "Possibilité d'annuler toutes les corrections appliquées après une analyse et revenir exactement à la séance d'avant.",
+    ],
+  },
   {
     version: "2026.08.06m",
     date: "6 août 2026",
@@ -4442,6 +4456,8 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
   const [showAiSection, setShowAiSection] = useState(false);
   const [localAnalysis, setLocalAnalysis] = useState(null);
   const [appliedFixIds, setAppliedFixIds] = useState(new Set());
+  const [daysBeforeFixes, setDaysBeforeFixes] = useState(null);
+  const [analysisView, setAnalysisView] = useState("summary");
 
   const loadProgramData = (data) => {
     setName(data.name || name); setLevel(data.level || level); setWeeks(data.weeks || weeks);
@@ -4472,9 +4488,18 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
   });
 
   const applyFix = (fix) => {
+    if (!daysBeforeFixes) setDaysBeforeFixes(days.map(d => ({ ...d, exercises: d.exercises.map(e => ({ ...e })) })));
     if (fix.type === "add") addExercise(fix.dayIndex, fix.exercise);
     else if (fix.type === "removeDuplicate") removeExercise(fix.dayIndex, fix.exerciseIndex);
     setAppliedFixIds(s => new Set([...s, fix.id]));
+  };
+
+  const undoFixes = () => {
+    if (!daysBeforeFixes) return;
+    setDays(daysBeforeFixes);
+    setDaysBeforeFixes(null);
+    setAppliedFixIds(new Set());
+    setLocalAnalysis(null);
   };
 
   const runAiAnalysis = async () => {
@@ -4585,94 +4610,131 @@ const ProgramBuilder = ({ c, client, onSave, onCancel, templates, otherClients, 
             <Sparkles size={15} color={c.electric2} />
             <span style={{ fontSize: 13, fontWeight: 700 }}>Analyse du programme (gratuite)</span>
           </div>
-          <PrimaryBtn c={c} full icon={Sparkles} disabled={totalSessions === 0} onClick={() => { setLocalAnalysis(analyzeProgramLocally(buildProgramData(), client)); setAppliedFixIds(new Set()); }} style={{ marginBottom: localAnalysis ? 12 : 0 }}>
+          <PrimaryBtn c={c} full icon={Sparkles} disabled={totalSessions === 0} onClick={() => { setLocalAnalysis(analyzeProgramLocally(buildProgramData(), client)); setAppliedFixIds(new Set()); }} style={{ marginBottom: daysBeforeFixes ? 8 : (localAnalysis ? 12 : 0) }}>
             Analyser ce programme
           </PrimaryBtn>
 
+          {daysBeforeFixes && (
+            <SecondaryBtn c={c} full icon={RotateCcw} onClick={undoFixes} style={{ marginBottom: 12, color: c.danger }}>
+              Annuler les modifications appliquées
+            </SecondaryBtn>
+          )}
+
           {localAnalysis && (
-            <div style={{ background: c.surface2, borderRadius: 12, padding: 14, marginBottom: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: localAnalysis.score >= 7.5 ? "rgba(48,209,88,0.15)" : localAnalysis.score >= 5 ? "rgba(255,159,10,0.15)" : "rgba(255,59,48,0.15)"
-                }}>
-                  <span className="ff-mono" style={{ fontWeight: 700, fontSize: 15, color: localAnalysis.score >= 7.5 ? c.success : localAnalysis.score >= 5 ? c.warning : c.danger }}>{localAnalysis.score}</span>
+            <Card c={c} style={{ marginBottom: 12, padding: 18 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18 }}>
+                <Ring pct={localAnalysis.score * 10} size={64} stroke={6} c={c}
+                  colorFrom={localAnalysis.score >= 7.5 ? c.success : localAnalysis.score >= 5 ? c.warning : c.danger}
+                  colorTo={localAnalysis.score >= 7.5 ? c.success : localAnalysis.score >= 5 ? c.warning : c.danger}>
+                  <span className="ff-mono" style={{ fontWeight: 700, fontSize: 17 }}>{localAnalysis.score}</span>
+                </Ring>
+                <div>
+                  <div className="ff-display" style={{ fontWeight: 700, fontSize: 15, marginBottom: 3 }}>Note globale sur 10</div>
+                  <div style={{ fontSize: 11.5, color: c.muted }}>{localAnalysis.daysTrained} jour{localAnalysis.daysTrained > 1 ? "s" : ""} d'entraînement · {localAnalysis.restDays} de repos</div>
                 </div>
-                <div style={{ fontSize: 12, color: c.muted }}>Note globale sur 10<br /><span style={{ fontSize: 11 }}>{localAnalysis.daysTrained} jour{localAnalysis.daysTrained > 1 ? "s" : ""} d'entraînement · {localAnalysis.restDays} de repos</span></div>
               </div>
 
-              {localAnalysis.fixes.filter(f => !appliedFixIds.has(f.id)).length > 0 && (
-                <>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: c.warning, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Suggestions d'optimisation</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-                    {localAnalysis.fixes.filter(f => !appliedFixIds.has(f.id)).map(fix => (
-                      <div key={fix.id} style={{ display: "flex", alignItems: "center", gap: 10, background: c.surface, borderRadius: 10, padding: 10 }}>
-                        <span style={{ flex: 1, fontSize: 11.5, lineHeight: 1.4 }}>{fix.label}</span>
-                        <SecondaryBtn c={c} icon={Check} onClick={() => applyFix(fix)} style={{ padding: "6px 12px", fontSize: 11 }}>Appliquer</SecondaryBtn>
-                      </div>
-                    ))}
-                  </div>
-                  <p style={{ fontSize: 10.5, color: c.muted, margin: "-6px 0 14px", lineHeight: 1.4 }}>Après application, relance l'analyse pour vérifier l'effet sur la note.</p>
-                </>
-              )}
-
-              <div style={{ fontSize: 11, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Muscles travaillés (séries/semaine)</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
-                {localAnalysis.muscleBreakdown.map(m => (
-                  <div key={m.cat}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                      <span style={{ fontSize: 11.5, color: m.sets === 0 ? c.muted : c.text, fontWeight: m.sets === 0 ? 400 : 600 }}>{m.cat}</span>
-                      <span className="ff-mono" style={{ fontSize: 11, color: c.muted }}>{m.sets === 0 ? "non travaillé" : `${m.sets} séries`}</span>
-                    </div>
-                    <div style={{ height: 6, background: c.surface, borderRadius: 4, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${Math.max(m.pct, m.sets > 0 ? 4 : 0)}%`, background: m.sets === 0 ? "transparent" : c.gradA, borderRadius: 4 }} />
-                    </div>
-                  </div>
+              <div className="scrollbar-none" style={{ display: "flex", gap: 6, marginBottom: 16, background: c.surface2, padding: 3, borderRadius: 10, overflowX: "auto" }}>
+                {[
+                  { id: "summary", l: "Résumé" },
+                  { id: "muscles", l: "Muscles" },
+                  ...(localAnalysis.fixes.filter(f => !appliedFixIds.has(f.id)).length > 0 ? [{ id: "fixes", l: `Suggestions (${localAnalysis.fixes.filter(f => !appliedFixIds.has(f.id)).length})` }] : []),
+                ].map(t => (
+                  <button key={t.id} onClick={() => setAnalysisView(t.id)} style={{
+                    flexShrink: 0, padding: "7px 13px", borderRadius: 7, border: "none", cursor: "pointer",
+                    background: analysisView === t.id ? c.gradA : "transparent", color: analysisView === t.id ? "#fff" : c.muted, fontWeight: 700, fontSize: 11.5
+                  }}>{t.l}</button>
                 ))}
               </div>
 
-              {localAnalysis.subMuscleDetail.length > 0 && (
-                <>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Détail anatomique par muscle</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
-                    {localAnalysis.subMuscleDetail.map(group => (
-                      <div key={group.cat} style={{ background: c.surface, borderRadius: 10, padding: 10 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{group.cat}</div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          {group.subMuscles.map(sm => (
-                            <div key={sm.name} style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                              {sm.covered ? <CheckCircle2 size={12} color={c.success} style={{ flexShrink: 0 }} /> : <X size={12} color={c.muted} style={{ flexShrink: 0 }} />}
-                              <span style={{ fontSize: 11, color: sm.covered ? c.text : c.muted }}>{sm.name}</span>
-                            </div>
-                          ))}
+              {analysisView === "fixes" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {localAnalysis.fixes.filter(f => !appliedFixIds.has(f.id)).map(fix => (
+                    <div key={fix.id} style={{ display: "flex", alignItems: "center", gap: 10, background: c.surface2, borderRadius: 12, padding: 12 }}>
+                      <div style={{ width: 26, height: 26, borderRadius: 8, background: "rgba(255,159,10,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <Plus size={13} color={c.warning} />
+                      </div>
+                      <span style={{ flex: 1, fontSize: 11.5, lineHeight: 1.4 }}>{fix.label}</span>
+                      <SecondaryBtn c={c} icon={Check} onClick={() => applyFix(fix)} style={{ padding: "6px 12px", fontSize: 11 }}>Appliquer</SecondaryBtn>
+                    </div>
+                  ))}
+                  <p style={{ fontSize: 10.5, color: c.muted, margin: "2px 0 0", lineHeight: 1.4 }}>Après application, relance l'analyse pour vérifier l'effet sur la note.</p>
+                </div>
+              )}
+
+              {analysisView === "muscles" && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>Volume hebdomadaire</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
+                    {localAnalysis.muscleBreakdown.map(m => (
+                      <div key={m.cat}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, color: m.sets === 0 ? c.muted : c.text, fontWeight: m.sets === 0 ? 400 : 600 }}>{m.cat}</span>
+                          <span className="ff-mono" style={{ fontSize: 11, color: c.muted }}>{m.sets === 0 ? "non travaillé" : `${m.sets} séries`}</span>
+                        </div>
+                        <div style={{ height: 7, background: c.surface2, borderRadius: 4, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${Math.max(m.pct, m.sets > 0 ? 4 : 0)}%`, background: m.sets === 0 ? "transparent" : c.gradA, borderRadius: 4, transition: "width .3s ease" }} />
                         </div>
                       </div>
                     ))}
                   </div>
-                </>
+
+                  {localAnalysis.subMuscleDetail.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>Détail anatomique</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {localAnalysis.subMuscleDetail.map(group => (
+                          <div key={group.cat} style={{ background: c.surface2, borderRadius: 12, padding: 12 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>{group.cat}</div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              {group.subMuscles.map(sm => (
+                                <div key={sm.name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  {sm.covered
+                                    ? <div style={{ width: 18, height: 18, borderRadius: "50%", background: "rgba(48,209,88,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><CheckCircle2 size={11} color={c.success} /></div>
+                                    : <div style={{ width: 18, height: 18, borderRadius: "50%", background: c.surface, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><X size={10} color={c.muted} /></div>}
+                                  <span style={{ fontSize: 11.5, color: sm.covered ? c.text : c.muted }}>{sm.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
 
-              <div style={{ fontSize: 11, fontWeight: 700, color: c.success, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Points forts</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-                {localAnalysis.strengths.map((s, i) => (
-                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.5 }}><CheckCircle2 size={13} color={c.success} style={{ flexShrink: 0, marginTop: 2 }} /><span>{s}</span></div>
-                ))}
-              </div>
+              {analysisView === "summary" && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: c.success, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Points forts</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                    {localAnalysis.strengths.map((s, i) => (
+                      <div key={i} style={{ display: "flex", gap: 9, fontSize: 12, lineHeight: 1.5, background: "rgba(48,209,88,0.08)", borderRadius: 10, padding: 10 }}>
+                        <CheckCircle2 size={14} color={c.success} style={{ flexShrink: 0, marginTop: 1 }} /><span>{s}</span>
+                      </div>
+                    ))}
+                  </div>
 
-              <div style={{ fontSize: 11, fontWeight: 700, color: c.warning, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Points faibles / risques</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-                {localAnalysis.weaknesses.map((s, i) => (
-                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.5 }}><AlertTriangle size={13} color={c.warning} style={{ flexShrink: 0, marginTop: 2 }} /><span>{s}</span></div>
-                ))}
-              </div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: c.warning, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Points faibles / risques</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                    {localAnalysis.weaknesses.map((s, i) => (
+                      <div key={i} style={{ display: "flex", gap: 9, fontSize: 12, lineHeight: 1.5, background: "rgba(255,159,10,0.08)", borderRadius: 10, padding: 10 }}>
+                        <AlertTriangle size={14} color={c.warning} style={{ flexShrink: 0, marginTop: 1 }} /><span>{s}</span>
+                      </div>
+                    ))}
+                  </div>
 
-              <div style={{ fontSize: 11, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Recommandations</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {localAnalysis.recommendations.map((s, i) => (
-                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.5 }}><TrendingUp size={13} color={c.electric2} style={{ flexShrink: 0, marginTop: 2 }} /><span>{s}</span></div>
-                ))}
-              </div>
-            </div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: c.electric2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Recommandations</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {localAnalysis.recommendations.map((s, i) => (
+                      <div key={i} style={{ display: "flex", gap: 9, fontSize: 12, lineHeight: 1.5, background: "rgba(0,113,227,0.08)", borderRadius: 10, padding: 10 }}>
+                        <TrendingUp size={14} color={c.electric2} style={{ flexShrink: 0, marginTop: 1 }} /><span>{s}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
           )}
 
           <button onClick={() => setShowAiSection(!showAiSection)} style={{ background: "none", border: "none", color: c.muted, fontSize: 11.5, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, padding: 0, marginBottom: showAiSection ? 10 : 0 }}>

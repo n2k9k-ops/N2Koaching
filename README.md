@@ -500,3 +500,24 @@ L'analyse ne se contente plus de dire ce qui ne va pas — elle propose une **se
 Après avoir appliqué une ou plusieurs corrections, il suffit de relancer l'analyse pour voir la note et les points restants mis à jour — le programme se construit sous tes yeux, pas juste une liste de recommandations à appliquer soi-même à la main.
 
 **Ce qui reste volontairement non auto-appliqué** (trop subjectif ou destructeur pour un clic automatique) : volume excessif (nécessiterait de retirer des séries), déséquilibre poussée/tirage, fatigue cumulée, absence de jour de repos — ces points restent informatifs, à ajuster toi-même selon le contexte du client.
+
+## Annuler les corrections appliquées
+
+Aucun changement SQL.
+
+Dès que tu cliques sur au moins un "Appliquer", un bouton **"Annuler les modifications appliquées"** apparaît — il restaure la séance exactement comme elle était avant la toute première correction de la session en cours (pas juste la dernière : toutes les corrections appliquées d'un coup, même après avoir relancé l'analyse entre-temps). Une fois annulé, l'analyse repart à zéro pour que tu puisses réessayer différemment.
+
+⚠️ Ça n'annule que les corrections faites via les boutons "Appliquer" de l'analyse — pas les modifications manuelles que tu ferais toi-même à côté (ajout/suppression d'exercices à la main). Si tu modifies le programme manuellement après avoir appliqué des corrections, l'annulation reviendra quand même à l'état d'avant les corrections IA, pas à ton état manuel le plus récent — pense à vérifier avant de cliquer si tu as fait d'autres changements entre-temps.
+
+## Refonte visuelle du panneau d'analyse
+
+Aucun changement SQL.
+
+Suite à "tu peux redesign l'app honnêtement ?" — je dois être transparent : je n'ai aucun moyen de voir l'app rendue visuellement (pas de captures d'écran de cette app déployée), donc je ne peux pas juger l'esthétique générale comme un humain le ferait. Ce que je peux faire, c'est repérer les vraies incohérences dans le code lui-même.
+
+La plus évidente : le panneau d'analyse de programme (ajouté récemment) était du texte empilé dans des `<div>` plats — fonctionnel mais visuellement à part du reste de l'app. Refait avec :
+- Un **anneau de progression** pour le score (comme utilisé partout ailleurs dans l'app — tableau de bord, profil) au lieu d'un simple cercle avec un chiffre.
+- **Des onglets** (Résumé / Muscles / Suggestions) au lieu d'un mur de texte à faire défiler — matche le principe déjà utilisé ailleurs dans l'app (ex : le panneau de charges du coach).
+- **Des cartes de couleur** pour points forts (vert)/faibles (orange)/recommandations (bleu) au lieu de simples listes à puces.
+
+Si tu identifies d'autres zones précises qui te semblent "à part" du reste de l'app, dis-le-moi avec le nom de l'écran — je peux faire la même chose ailleurs, mais je préfère cibler du concret plutôt que deviner à l'aveugle sur l'ensemble de l'app.
